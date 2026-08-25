@@ -1,0 +1,210 @@
+// Package api owns the HTTP mechanism around feature-flag policy.
+package api
+
+import (
+	"context"
+	"crypto/subtle"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+
+	"example.com/{{.Recipe.Name}}/internal/flags"
+)
+
+const maxRequestBytes = 1 << 20
+
+type Authority interface {
+	Load(context.Context, string, string) (flags.Flag, error)
+	Publish(context.Context, string, flags.Flag, int64, string) (flags.Flag, error)
+}
+
+type Configuration struct {
+	AdminToken      string
+	AdminActor      string
+	EvaluationToken string
+}
+
+type Server struct {
+	authority     Authority
+	configuration Configuration
+}
+
+type publishRequest struct {
+	ExpectedRevision int64      `json:"expectedRevision"`
+	Flag             flags.Flag `json:"flag"`
+}
+
+type evaluationRequest struct {
+	Context map[string]any `json:"context"`
+}
+
+func New(authority Authority, configuration Configuration) (*Server, error) {
+	if authority == nil {
+		return nil, errors.New("flag authority is required")
+	}
+	if strings.TrimSpace(configuration.AdminToken) == "" {
+		return nil, errors.New("admin token is required")
+	}
+	if strings.TrimSpace(configuration.AdminActor) == "" {
+		return nil, errors.New("admin actor is required")
+	}
+	if strings.TrimSpace(configuration.EvaluationToken) == "" {
+		return nil, errors.New("evaluation token is required")
+	}
+	if secureEqual(configuration.AdminToken, configuration.EvaluationToken) {
+		return nil, errors.New("management and evaluation tokens must differ")
+	}
+	return &Server{authority: authority, configuration: configuration}, nil
+}
+
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", health)
+	mux.HandleFunc(
+		"PUT /v1/environments/{environment}/flags/{key}",
+		s.authorize(s.configuration.AdminToken, s.publish),
+	)
+	mux.HandleFunc(
+		"POST /environments/{environment}/ofrep/v1/evaluate/flags/{key}",
+		s.authorize(s.configuration.EvaluationToken, s.evaluate),
+	)
+	return mux
+}
+
+func health(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
+	environment := r.PathValue("environment")
+	if err := flags.ValidateSegment(environment, "environment"); err != nil {
+		writeFlagError(w, err)
+		return
+	}
+	var request publishRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	key := r.PathValue("key")
+	if request.ExpectedRevision < 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "expectedRevision must be non-negative"})
+		return
+	}
+	if request.Flag.Key != "" && request.Flag.Key != key {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path key and flag key differ"})
+		return
+	}
+	request.Flag.Key = key
+	if err := request.Flag.Validate(); err != nil {
+		writeFlagError(w, err)
+		return
+	}
+	published, err := s.authority.Publish(
+		r.Context(),
+		environment,
+		request.Flag,
+		request.ExpectedRevision,
+		s.configuration.AdminActor,
+	)
+	if err != nil {
+		writeFlagError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, published)
+}
+
+func (s *Server) evaluate(w http.ResponseWriter, r *http.Request) {
+	environment := r.PathValue("environment")
+	if err := flags.ValidateSegment(environment, "environment"); err != nil {
+		writeFlagError(w, err)
+		return
+	}
+	key := r.PathValue("key")
+	if err := flags.ValidateSegment(key, "flag key"); err != nil {
+		writeFlagError(w, err)
+		return
+	}
+	var request evaluationRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	flag, err := s.authority.Load(r.Context(), environment, key)
+	if err != nil {
+		writeFlagError(w, err)
+		return
+	}
+	evaluation, err := flags.Evaluate(flag, request.Context)
+	if err != nil {
+		writeFlagError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"key":      evaluation.Key,
+		"value":    evaluation.Value,
+		"reason":   evaluation.Reason,
+		"variant":  evaluation.Variant,
+		"metadata": map[string]int64{"revision": evaluation.Revision},
+	})
+}
+
+func (s *Server) authorize(token string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		header := r.Header.Get("Authorization")
+		if !strings.HasPrefix(header, "Bearer ") {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		if !secureEqual(strings.TrimPrefix(header, "Bearer "), token) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		next(w, r)
+	}
+}
+
+func secureEqual(left, right string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(left), []byte(right)) == 1
+}
+
+func decodeJSON(w http.ResponseWriter, r *http.Request, destination any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		return fmt.Errorf("decode request: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("decode request: multiple JSON values")
+	}
+	return nil
+}
+
+func writeFlagError(w http.ResponseWriter, err error) {
+	if errors.Is(err, flags.ErrInvalid) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if errors.Is(err, flags.ErrConflict) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	if errors.Is(err, flags.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+}
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
+}

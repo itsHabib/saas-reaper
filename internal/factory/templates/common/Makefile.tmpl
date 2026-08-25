@@ -1,7 +1,8 @@
 .PHONY: setup check demo
 
 setup:
-{{if eq .Recipe.Service.Language "typescript"}}	npm install
+{{if eq .Recipe.Service.Language "go"}}	go mod download
+{{end}}{{if eq .Recipe.Service.Language "typescript"}}	npm install
 {{end}}{{if eq .Recipe.Service.Language "python"}}	python3 -m venv .venv
 	.venv/bin/python -m pip install --upgrade pip
 {{if eq .Recipe.Database.Authority "postgres"}}	.venv/bin/python -m pip install -r requirements.txt

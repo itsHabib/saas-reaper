@@ -1,0 +1,75 @@
+package flags
+
+import (
+	"crypto/sha256"
+	"encoding/binary"
+	"fmt"
+	"strings"
+)
+
+func Evaluate(flag Flag, context map[string]any) (Evaluation, error) {
+	targetingKey, valid := context["targetingKey"].(string)
+	if !valid || targetingKey == "" {
+		return Evaluation{}, fmt.Errorf("%w: targetingKey must be a non-empty string", ErrInvalid)
+	}
+	if !flag.Enabled {
+		return resolve(flag, flag.DefaultVariant, "DISABLED")
+	}
+	for _, rule := range flag.Rules {
+		if !matches(rule, context) {
+			continue
+		}
+		return resolve(flag, rule.Variant, "TARGETING_MATCH")
+	}
+	if flag.Rollout == nil {
+		return resolve(flag, flag.DefaultVariant, "STATIC")
+	}
+	if !inRollout(flag.Key, *flag.Rollout, context) {
+		return resolve(flag, flag.DefaultVariant, "STATIC")
+	}
+	return resolve(flag, flag.Rollout.Variant, "SPLIT")
+}
+
+func matches(rule Rule, context map[string]any) bool {
+	value, valid := contextValue(context, rule.Attribute).(string)
+	if !valid {
+		return false
+	}
+	return value == rule.Equals
+}
+
+func inRollout(key string, rollout Rollout, context map[string]any) bool {
+	value, valid := contextValue(context, rollout.Attribute).(string)
+	if !valid {
+		return false
+	}
+	digest := sha256.Sum256([]byte(key + "\x00" + value))
+	bucket := binary.BigEndian.Uint64(digest[:8]) % 10_000
+	return bucket < uint64(rollout.Percentage*100)
+}
+
+func contextValue(context map[string]any, attribute string) any {
+	var current any = context
+	for _, segment := range strings.Split(attribute, ".") {
+		record, valid := current.(map[string]any)
+		if !valid {
+			return nil
+		}
+		current = record[segment]
+	}
+	return current
+}
+
+func resolve(flag Flag, variant, reason string) (Evaluation, error) {
+	value, exists := flag.Variants[variant]
+	if !exists {
+		return Evaluation{}, fmt.Errorf("%w: variant %q is not defined", ErrInvalid, variant)
+	}
+	return Evaluation{
+		Key:      flag.Key,
+		Value:    value,
+		Reason:   reason,
+		Variant:  variant,
+		Revision: flag.Revision,
+	}, nil
+}

@@ -1,0 +1,17 @@
+schema: reaper.dev/v0alpha2
+name: go-flags
+capability: feature-flags
+service:
+  language: go
+database:
+  authority: sqlite
+deployment:
+  target: docker
+  replicas: 1
+delivery:
+  format: both
+domain:
+  tenant: organization
+  targetingAttributes:
+    - targetingKey
+    - organization.id

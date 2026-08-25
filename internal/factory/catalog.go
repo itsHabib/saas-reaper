@@ -19,6 +19,7 @@ type Catalog struct {
 func ProductCatalog() Catalog {
 	return Catalog{
 		Languages: []Choice{
+			{Value: "go", Label: "Go", Description: "Small compiled service with explicit internal packages"},
 			{Value: "typescript", Label: "TypeScript", Description: "Node.js service with strict TypeScript"},
 			{Value: "python", Label: "Python", Description: "Python service with strict static checks"},
 		},

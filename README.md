@@ -25,16 +25,16 @@ Or generate deterministically from a recipe:
 ```sh
 go run ./cmd/reaper catalog
 go run ./cmd/reaper generate \
-  --recipe recipes/typescript-sqlite-docker.yaml \
+  --recipe recipes/go-sqlite-docker.yaml \
   --out /tmp/acme-flags
 ```
 
-The customer chooses TypeScript or Python, SQLite or PostgreSQL, a deployment
-pack, and directory/ZIP delivery. Reaper validates compatibility, renders only
-the selected mechanisms, and returns an independent repository containing the
-service, infrastructure, `AGENTS.md`, `CLAUDE.md`, `DOMAIN.md`, skills, receipt,
-checks, and demo. Generation never provisions infrastructure and generated
-services do not call home.
+The customer chooses Go, TypeScript, or Python; SQLite or PostgreSQL; a
+deployment pack; and directory/ZIP delivery. Reaper validates compatibility,
+renders only the selected mechanisms, and returns an independent repository
+containing the service, infrastructure, `AGENTS.md`, `CLAUDE.md`, `DOMAIN.md`,
+skills, receipt, checks, and demo. Generation never provisions infrastructure
+and generated services do not call home.
 
 Supported deployment packs are Docker Compose, AWS ECS/Fargate, AWS EC2, GCP
 Cloud Run, and Kubernetes/Kustomize. Managed and multi-replica targets require
@@ -131,12 +131,13 @@ Creating requires revision `0`; updating requires the current revision. SQLite c
 ## Honest POC boundary
 
 The factory currently offers a CLI and a local browser configurator, not a
-hosted multi-user control plane. It generates TypeScript and Python service
-packs; the Go implementation remains the golden specimen rather than a
-selectable language pack. Cloud templates are delivered
-for review but are never applied by Reaper. Managed PostgreSQL instances,
-domains, certificates, container registries, and secret values remain explicit
-customer inputs.
+hosted multi-user control plane. It generates Go, TypeScript, and Python service
+packs. The Go pack is intentionally smaller than the root golden specimen: it
+keeps the same evaluation and revision policy without the golden specimen's
+separate in-memory read projection. Cloud templates are delivered for review
+but are never applied by Reaper. Managed PostgreSQL instances, domains,
+certificates, container registries, and secret values remain explicit customer
+inputs.
 
 The generated capability does not yet include an admin UI, client-side/local
 evaluation, approvals, analytics, an identity provider, per-environment

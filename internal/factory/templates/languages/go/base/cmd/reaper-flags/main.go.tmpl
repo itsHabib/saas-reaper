@@ -1,0 +1,101 @@
+// Command reaper-flags serves the generated feature-flag service.
+package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"example.com/{{.Recipe.Name}}/internal/api"
+	"example.com/{{.Recipe.Name}}/internal/store/{{.Recipe.Database.Authority}}"
+)
+
+func main() {
+	if err := run(); err != nil {
+		slog.Error("feature-flag service stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	adminToken, err := required("REAPER_ADMIN_TOKEN")
+	if err != nil {
+		return err
+	}
+	adminActor, err := required("REAPER_ADMIN_ACTOR")
+	if err != nil {
+		return err
+	}
+	evaluationToken, err := required("REAPER_EVALUATION_TOKEN")
+	if err != nil {
+		return err
+	}
+{{if eq .Recipe.Database.Authority "sqlite"}}	databaseSource := environment("DATABASE_PATH", "reaper.db")
+{{end}}{{if eq .Recipe.Database.Authority "postgres"}}	databaseSource, err := required("DATABASE_URL")
+	if err != nil {
+		return err
+	}
+{{end}}	authority, err := {{.Recipe.Database.Authority}}.Open(context.Background(), databaseSource)
+	if err != nil {
+		return err
+	}
+	defer authority.Close()
+	if err := authority.Initialize(context.Background()); err != nil {
+		return err
+	}
+	apiServer, err := api.New(authority, api.Configuration{
+		AdminToken:      adminToken,
+		AdminActor:      adminActor,
+		EvaluationToken: evaluationToken,
+	})
+	if err != nil {
+		return err
+	}
+	httpServer := &http.Server{
+		Addr:              ":" + environment("PORT", "8080"),
+		Handler:           apiServer.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	serverErrors := make(chan error, 1)
+	go func() {
+		slog.Info("{{.Recipe.Name}} listening", "address", httpServer.Addr)
+		serverErrors <- httpServer.ListenAndServe()
+	}()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	select {
+	case <-ctx.Done():
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return httpServer.Shutdown(shutdownContext)
+	case serverError := <-serverErrors:
+		if errors.Is(serverError, http.ErrServerClosed) {
+			return nil
+		}
+		return serverError
+	}
+}
+
+func required(name string) (string, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return "", errors.New(name + " is required")
+	}
+	return value, nil
+}
+
+func environment(name, fallback string) string {
+	value := os.Getenv(name)
+	if value != "" {
+		return value
+	}
+	return fallback
+}

@@ -81,7 +81,7 @@ func DefaultRecipe() Recipe {
 		Schema:     Schema,
 		Name:       "reaper-flags",
 		Capability: "feature-flags",
-		Service:    Runtime{Language: "typescript"},
+		Service:    Runtime{Language: "go"},
 		Database:   Database{Authority: "sqlite"},
 		Deployment: Deployment{Target: "docker", Replicas: 1},
 		Delivery:   Delivery{Format: "both"},

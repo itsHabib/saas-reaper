@@ -34,6 +34,7 @@ func TestValidateRejectsReplicaCountIgnoredByTarget(t *testing.T) {
 func TestGenerateComposesDirectoryAndArchive(t *testing.T) {
 	recipe := DefaultRecipe()
 	recipe.Name = "customer-flags"
+	recipe.Service.Language = "typescript"
 	destination := filepath.Join(t.TempDir(), recipe.Name)
 	result, err := Generate(recipe, destination)
 	if err != nil {
@@ -219,6 +220,12 @@ func testCatalogCombination(t *testing.T, root, language, database, deployment s
 
 func assertSelectedLanguage(t *testing.T, root, language string) {
 	t.Helper()
+	if language == "go" {
+		assertFileContains(t, filepath.Join(root, "internal/flags/evaluate.go"), "func Evaluate")
+		assertFileMissing(t, filepath.Join(root, "src/flags/evaluate.ts"))
+		assertFileMissing(t, filepath.Join(root, "reaper_flags/flags/evaluate.py"))
+		return
+	}
 	if language == "typescript" {
 		assertFileContains(t, filepath.Join(root, "src/flags/evaluate.ts"), "function evaluate")
 		assertFileMissing(t, filepath.Join(root, "reaper_flags/flags/evaluate.py"))
@@ -230,6 +237,19 @@ func assertSelectedLanguage(t *testing.T, root, language string) {
 
 func assertSelectedDatabase(t *testing.T, root, language, database string) {
 	t.Helper()
+	if language == "go" {
+		assertFileContains(
+			t,
+			filepath.Join(root, "internal/store", database, database+".go"),
+			"Authority",
+		)
+		other := "sqlite"
+		if database == "sqlite" {
+			other = "postgres"
+		}
+		assertFileMissing(t, filepath.Join(root, "internal/store", other, other+".go"))
+		return
+	}
 	extension := ".ts"
 	storeRoot := filepath.Join(root, "src/store")
 	if language == "python" {

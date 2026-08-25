@@ -12,7 +12,7 @@ import (
 )
 
 // FactoryVersion identifies the template set recorded in generated lock receipts.
-const FactoryVersion = "0.1.0"
+const FactoryVersion = "0.2.0"
 
 //go:embed templates
 var templateFiles embed.FS

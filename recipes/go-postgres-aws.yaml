@@ -1,0 +1,17 @@
+schema: reaper.dev/v0alpha2
+name: go-postgres-flags
+capability: feature-flags
+service:
+  language: go
+database:
+  authority: postgres
+deployment:
+  target: aws-ecs
+  replicas: 2
+delivery:
+  format: directory
+domain:
+  tenant: organization
+  targetingAttributes:
+    - targetingKey
+    - organization.id

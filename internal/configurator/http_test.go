@@ -55,7 +55,8 @@ func TestGenerateDownloadsOwnedRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertDownloadedFile(t, archive, "browser-flags/REAPER.yaml", "language: typescript")
+	assertDownloadedFile(t, archive, "browser-flags/REAPER.yaml", "language: go")
+	assertDownloadedFile(t, archive, "browser-flags/internal/flags/evaluate.go", "func Evaluate")
 	assertDownloadedFile(t, archive, "browser-flags/.agents/skills/onboard-domain/SKILL.md", "Onboard a customer domain")
 }
 

@@ -1,0 +1,178 @@
+// Package flags owns feature-flag validation and evaluation policy.
+package flags
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
+
+var (
+	ErrConflict = errors.New("flag revision conflict")
+	ErrInvalid  = errors.New("invalid flag")
+	ErrNotFound = errors.New("flag not found")
+)
+
+type Kind string
+
+const (
+	Boolean Kind = "boolean"
+	String  Kind = "string"
+)
+
+type Flag struct {
+	Key            string         `json:"key"`
+	Kind           Kind           `json:"kind"`
+	Enabled        bool           `json:"enabled"`
+	DefaultVariant string         `json:"defaultVariant"`
+	Variants       map[string]any `json:"variants"`
+	Rules          []Rule         `json:"rules,omitempty"`
+	Rollout        *Rollout       `json:"rollout,omitempty"`
+	Revision       int64          `json:"revision"`
+	UpdatedAt      time.Time      `json:"updatedAt"`
+}
+
+type Rule struct {
+	Attribute string `json:"attribute"`
+	Equals    string `json:"equals"`
+	Variant   string `json:"variant"`
+}
+
+type Rollout struct {
+	Attribute  string `json:"attribute"`
+	Percentage int    `json:"percentage"`
+	Variant    string `json:"variant"`
+}
+
+type Evaluation struct {
+	Key      string `json:"key"`
+	Value    any    `json:"value"`
+	Reason   string `json:"reason"`
+	Variant  string `json:"variant"`
+	Revision int64  `json:"-"`
+}
+
+var approvedAttributes = func() map[string]struct{} {
+	approved := make(map[string]struct{})
+	for _, attribute := range []string{ {{- .Attributes -}} } {
+		approved[attribute] = struct{}{}
+	}
+	return approved
+}()
+
+func (f Flag) Validate() error {
+	if err := ValidateSegment(f.Key, "flag key"); err != nil {
+		return err
+	}
+	if f.Kind != Boolean && f.Kind != String {
+		return fmt.Errorf("%w: kind must be boolean or string", ErrInvalid)
+	}
+	if len(f.Variants) == 0 {
+		return fmt.Errorf("%w: at least one variant is required", ErrInvalid)
+	}
+	if _, exists := f.Variants[f.DefaultVariant]; !exists {
+		return fmt.Errorf("%w: default variant %q is not defined", ErrInvalid, f.DefaultVariant)
+	}
+	for name, value := range f.Variants {
+		if err := validateVariant(f.Kind, name, value); err != nil {
+			return err
+		}
+	}
+	for index, rule := range f.Rules {
+		if err := validateRule(f, rule); err != nil {
+			return fmt.Errorf("rule %d: %w", index, err)
+		}
+	}
+	if f.Rollout == nil {
+		return nil
+	}
+	return validateRollout(f, *f.Rollout)
+}
+
+func ValidateSegment(value, name string) error {
+	if value == "" {
+		return fmt.Errorf("%w: %s is required", ErrInvalid, name)
+	}
+	for _, char := range value {
+		if isSegmentCharacter(char) {
+			continue
+		}
+		return fmt.Errorf("%w: %s contains unsupported character %q", ErrInvalid, name, char)
+	}
+	return nil
+}
+
+func Decode(data []byte) (Flag, error) {
+	var flag Flag
+	if err := json.Unmarshal(data, &flag); err != nil {
+		return Flag{}, fmt.Errorf("decode flag: %w", err)
+	}
+	if err := flag.Validate(); err != nil {
+		return Flag{}, err
+	}
+	return flag, nil
+}
+
+func isSegmentCharacter(char rune) bool {
+	if char >= 'a' && char <= 'z' {
+		return true
+	}
+	if char >= 'A' && char <= 'Z' {
+		return true
+	}
+	if char >= '0' && char <= '9' {
+		return true
+	}
+	return strings.ContainsRune("._-", char)
+}
+
+func validateVariant(kind Kind, name string, value any) error {
+	if name == "" {
+		return fmt.Errorf("%w: variant name is required", ErrInvalid)
+	}
+	if kind == Boolean {
+		if _, valid := value.(bool); !valid {
+			return fmt.Errorf("%w: variant %q must contain a boolean", ErrInvalid, name)
+		}
+		return nil
+	}
+	if _, valid := value.(string); !valid {
+		return fmt.Errorf("%w: variant %q must contain a string", ErrInvalid, name)
+	}
+	return nil
+}
+
+func validateRule(flag Flag, rule Rule) error {
+	if err := validateAttribute(rule.Attribute); err != nil {
+		return err
+	}
+	if rule.Equals == "" {
+		return fmt.Errorf("%w: equals is required", ErrInvalid)
+	}
+	if _, exists := flag.Variants[rule.Variant]; !exists {
+		return fmt.Errorf("%w: rule variant %q is not defined", ErrInvalid, rule.Variant)
+	}
+	return nil
+}
+
+func validateRollout(flag Flag, rollout Rollout) error {
+	if err := validateAttribute(rollout.Attribute); err != nil {
+		return err
+	}
+	if rollout.Percentage < 0 || rollout.Percentage > 100 {
+		return fmt.Errorf("%w: rollout percentage must be from 0 to 100", ErrInvalid)
+	}
+	if _, exists := flag.Variants[rollout.Variant]; !exists {
+		return fmt.Errorf("%w: rollout variant %q is not defined", ErrInvalid, rollout.Variant)
+	}
+	return nil
+}
+
+func validateAttribute(attribute string) error {
+	if _, approved := approvedAttributes[attribute]; approved {
+		return nil
+	}
+	return fmt.Errorf("%w: targeting attribute %q is not approved by DOMAIN.md", ErrInvalid, attribute)
+}

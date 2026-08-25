@@ -1,0 +1,208 @@
+// Package postgres provides the external durable authority.
+package postgres
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"example.com/{{.Recipe.Name}}/internal/flags"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type Authority struct {
+	pool *pgxpool.Pool
+}
+
+func Open(ctx context.Context, connectionString string) (*Authority, error) {
+	pool, err := pgxpool.New(ctx, connectionString)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres: %w", err)
+	}
+	return &Authority{pool: pool}, nil
+}
+
+func (a *Authority) Initialize(ctx context.Context) error {
+	_, err := a.pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS flags (
+			environment TEXT NOT NULL,
+			key TEXT NOT NULL,
+			revision BIGINT NOT NULL,
+			definition JSONB NOT NULL,
+			PRIMARY KEY (environment, key)
+		);
+		CREATE TABLE IF NOT EXISTS audit (
+			sequence BIGSERIAL PRIMARY KEY,
+			environment TEXT NOT NULL,
+			key TEXT NOT NULL,
+			revision BIGINT NOT NULL,
+			actor TEXT NOT NULL,
+			occurred_at TIMESTAMPTZ NOT NULL
+		);
+	`)
+	if err != nil {
+		return fmt.Errorf("initialize postgres: %w", err)
+	}
+	return nil
+}
+
+func (a *Authority) Close() error {
+	a.pool.Close()
+	return nil
+}
+
+func (a *Authority) Load(ctx context.Context, environment, key string) (flags.Flag, error) {
+	var definition []byte
+	err := a.pool.QueryRow(
+		ctx,
+		`SELECT definition FROM flags WHERE environment = $1 AND key = $2`,
+		environment,
+		key,
+	).Scan(&definition)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return flags.Flag{}, fmt.Errorf("%w: %s", flags.ErrNotFound, key)
+	}
+	if err != nil {
+		return flags.Flag{}, fmt.Errorf("load flag: %w", err)
+	}
+	return flags.Decode(definition)
+}
+
+func (a *Authority) Publish(
+	ctx context.Context,
+	environment string,
+	flag flags.Flag,
+	expectedRevision int64,
+	actor string,
+) (flags.Flag, error) {
+	transaction, err := a.pool.Begin(ctx)
+	if err != nil {
+		return flags.Flag{}, fmt.Errorf("begin publish: %w", err)
+	}
+	defer transaction.Rollback(ctx)
+	currentRevision, exists, err := readRevision(ctx, transaction, environment, flag.Key)
+	if err != nil {
+		return flags.Flag{}, err
+	}
+	if !exists && expectedRevision != 0 {
+		return flags.Flag{}, conflict(expectedRevision, 0)
+	}
+	if exists && currentRevision != expectedRevision {
+		return flags.Flag{}, conflict(expectedRevision, currentRevision)
+	}
+	flag.Revision = currentRevision + 1
+	flag.UpdatedAt = time.Now().UTC()
+	definition, err := json.Marshal(flag)
+	if err != nil {
+		return flags.Flag{}, fmt.Errorf("encode flag: %w", err)
+	}
+	if err := writeFlag(ctx, transaction, environment, flag, definition, exists); err != nil {
+		return flags.Flag{}, err
+	}
+	if err := appendAudit(ctx, transaction, environment, flag, actor); err != nil {
+		return flags.Flag{}, err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return flags.Flag{}, fmt.Errorf("commit publish: %w", err)
+	}
+	return flag, nil
+}
+
+func readRevision(
+	ctx context.Context,
+	transaction pgx.Tx,
+	environment string,
+	key string,
+) (int64, bool, error) {
+	var revision int64
+	err := transaction.QueryRow(
+		ctx,
+		`SELECT revision FROM flags WHERE environment = $1 AND key = $2 FOR UPDATE`,
+		environment,
+		key,
+	).Scan(&revision)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("read revision: %w", err)
+	}
+	return revision, true, nil
+}
+
+func writeFlag(
+	ctx context.Context,
+	transaction pgx.Tx,
+	environment string,
+	flag flags.Flag,
+	definition []byte,
+	exists bool,
+) error {
+	if !exists {
+		_, err := transaction.Exec(
+			ctx,
+			`INSERT INTO flags (environment, key, revision, definition) VALUES ($1, $2, $3, $4)`,
+			environment,
+			flag.Key,
+			flag.Revision,
+			definition,
+		)
+		if postgresCode(err) == "23505" {
+			return fmt.Errorf("%w: flag was created concurrently", flags.ErrConflict)
+		}
+		if err != nil {
+			return fmt.Errorf("create flag: %w", err)
+		}
+		return nil
+	}
+	_, err := transaction.Exec(
+		ctx,
+		`UPDATE flags SET revision = $3, definition = $4 WHERE environment = $1 AND key = $2`,
+		environment,
+		flag.Key,
+		flag.Revision,
+		definition,
+	)
+	if err != nil {
+		return fmt.Errorf("update flag: %w", err)
+	}
+	return nil
+}
+
+func appendAudit(
+	ctx context.Context,
+	transaction pgx.Tx,
+	environment string,
+	flag flags.Flag,
+	actor string,
+) error {
+	_, err := transaction.Exec(
+		ctx,
+		`INSERT INTO audit (environment, key, revision, actor, occurred_at) VALUES ($1, $2, $3, $4, $5)`,
+		environment,
+		flag.Key,
+		flag.Revision,
+		actor,
+		flag.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("append audit: %w", err)
+	}
+	return nil
+}
+
+func postgresCode(err error) string {
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) {
+		return postgresError.Code
+	}
+	return ""
+}
+
+func conflict(expected, current int64) error {
+	return fmt.Errorf("%w: expected revision %d, current revision %d", flags.ErrConflict, expected, current)
+}

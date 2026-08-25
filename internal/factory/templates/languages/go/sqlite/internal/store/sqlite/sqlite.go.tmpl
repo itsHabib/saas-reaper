@@ -1,0 +1,195 @@
+// Package sqlite provides the embedded durable authority.
+package sqlite
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"example.com/{{.Recipe.Name}}/internal/flags"
+	_ "modernc.org/sqlite"
+)
+
+type Authority struct {
+	database *sql.DB
+}
+
+func Open(_ context.Context, path string) (*Authority, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return nil, fmt.Errorf("create database directory: %w", err)
+	}
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	database.SetMaxOpenConns(1)
+	return &Authority{database: database}, nil
+}
+
+func (a *Authority) Initialize(ctx context.Context) error {
+	statements := []string{
+		`PRAGMA journal_mode = WAL`,
+		`PRAGMA busy_timeout = 5000`,
+		`CREATE TABLE IF NOT EXISTS flags (
+			environment TEXT NOT NULL,
+			key TEXT NOT NULL,
+			revision INTEGER NOT NULL,
+			definition BLOB NOT NULL,
+			PRIMARY KEY (environment, key)
+		)`,
+		`CREATE TABLE IF NOT EXISTS audit (
+			sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+			environment TEXT NOT NULL,
+			key TEXT NOT NULL,
+			revision INTEGER NOT NULL,
+			actor TEXT NOT NULL,
+			occurred_at TEXT NOT NULL
+		)`,
+	}
+	for _, statement := range statements {
+		if _, err := a.database.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("initialize sqlite: %w", err)
+		}
+	}
+	return nil
+}
+
+func (a *Authority) Close() error {
+	return a.database.Close()
+}
+
+func (a *Authority) Load(ctx context.Context, environment, key string) (flags.Flag, error) {
+	var definition []byte
+	err := a.database.QueryRowContext(
+		ctx,
+		`SELECT definition FROM flags WHERE environment = ? AND key = ?`,
+		environment,
+		key,
+	).Scan(&definition)
+	if errors.Is(err, sql.ErrNoRows) {
+		return flags.Flag{}, fmt.Errorf("%w: %s", flags.ErrNotFound, key)
+	}
+	if err != nil {
+		return flags.Flag{}, fmt.Errorf("load flag: %w", err)
+	}
+	return flags.Decode(definition)
+}
+
+func (a *Authority) Publish(
+	ctx context.Context,
+	environment string,
+	flag flags.Flag,
+	expectedRevision int64,
+	actor string,
+) (flags.Flag, error) {
+	transaction, err := a.database.BeginTx(ctx, nil)
+	if err != nil {
+		return flags.Flag{}, fmt.Errorf("begin publish: %w", err)
+	}
+	defer transaction.Rollback()
+	currentRevision, exists, err := readRevision(ctx, transaction, environment, flag.Key)
+	if err != nil {
+		return flags.Flag{}, err
+	}
+	if !exists && expectedRevision != 0 {
+		return flags.Flag{}, conflict(expectedRevision, 0)
+	}
+	if exists && currentRevision != expectedRevision {
+		return flags.Flag{}, conflict(expectedRevision, currentRevision)
+	}
+	flag.Revision = currentRevision + 1
+	flag.UpdatedAt = time.Now().UTC()
+	definition, err := json.Marshal(flag)
+	if err != nil {
+		return flags.Flag{}, fmt.Errorf("encode flag: %w", err)
+	}
+	if err := writeFlag(ctx, transaction, environment, flag, definition); err != nil {
+		return flags.Flag{}, err
+	}
+	if err := appendAudit(ctx, transaction, environment, flag, actor); err != nil {
+		return flags.Flag{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return flags.Flag{}, fmt.Errorf("commit publish: %w", err)
+	}
+	return flag, nil
+}
+
+func readRevision(
+	ctx context.Context,
+	transaction *sql.Tx,
+	environment string,
+	key string,
+) (int64, bool, error) {
+	var revision int64
+	err := transaction.QueryRowContext(
+		ctx,
+		`SELECT revision FROM flags WHERE environment = ? AND key = ?`,
+		environment,
+		key,
+	).Scan(&revision)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("read revision: %w", err)
+	}
+	return revision, true, nil
+}
+
+func writeFlag(
+	ctx context.Context,
+	transaction *sql.Tx,
+	environment string,
+	flag flags.Flag,
+	definition []byte,
+) error {
+	_, err := transaction.ExecContext(
+		ctx,
+		`INSERT INTO flags (environment, key, revision, definition)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(environment, key) DO UPDATE SET
+			revision = excluded.revision,
+			definition = excluded.definition`,
+		environment,
+		flag.Key,
+		flag.Revision,
+		definition,
+	)
+	if err != nil {
+		return fmt.Errorf("write flag: %w", err)
+	}
+	return nil
+}
+
+func appendAudit(
+	ctx context.Context,
+	transaction *sql.Tx,
+	environment string,
+	flag flags.Flag,
+	actor string,
+) error {
+	_, err := transaction.ExecContext(
+		ctx,
+		`INSERT INTO audit (environment, key, revision, actor, occurred_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		environment,
+		flag.Key,
+		flag.Revision,
+		actor,
+		flag.UpdatedAt.Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return fmt.Errorf("append audit: %w", err)
+	}
+	return nil
+}
+
+func conflict(expected, current int64) error {
+	return fmt.Errorf("%w: expected revision %d, current revision %d", flags.ErrConflict, expected, current)
+}

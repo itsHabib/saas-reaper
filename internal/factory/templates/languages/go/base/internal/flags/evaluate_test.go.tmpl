@@ -1,0 +1,53 @@
+package flags
+
+import "testing"
+
+func TestEvaluateUsesNestedDomainAttribute(t *testing.T) {
+	flag := Flag{
+		Key:            "checkout-v2",
+		Kind:           Boolean,
+		Enabled:        true,
+		DefaultVariant: "off",
+		Variants:       map[string]any{"off": false, "on": true},
+		Rules:          []Rule{Rule{Attribute: "organization.id", Equals: "acme", Variant: "on"}},
+		Revision:       7,
+	}
+	context := map[string]any{
+		"targetingKey": "demo-user",
+		"organization": map[string]any{"id": "acme"},
+	}
+	evaluation, err := Evaluate(flag, context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evaluation.Value != true || evaluation.Variant != "on" || evaluation.Reason != "TARGETING_MATCH" {
+		t.Fatalf("unexpected evaluation: %#v", evaluation)
+	}
+}
+
+func TestEvaluateRequiresTargetingKey(t *testing.T) {
+	flag := Flag{
+		Key:            "checkout-v2",
+		Kind:           Boolean,
+		Enabled:        true,
+		DefaultVariant: "off",
+		Variants:       map[string]any{"off": false},
+	}
+	if _, err := Evaluate(flag, map[string]any{}); err == nil {
+		t.Fatal("expected missing targeting key to fail")
+	}
+}
+
+func TestValidateRejectsUnapprovedAttribute(t *testing.T) {
+	flag := Flag{
+		Key:            "checkout-v2",
+		Kind:           Boolean,
+		Enabled:        true,
+		DefaultVariant: "off",
+		Variants:       map[string]any{"off": false, "on": true},
+		Rules:          []Rule{Rule{Attribute: "plan.secret", Equals: "staff", Variant: "on"}},
+	}
+	if err := flag.Validate(); err == nil {
+		t.Fatal("expected unapproved targeting attribute to fail")
+	}
+}

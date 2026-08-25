@@ -3,7 +3,7 @@ set -euo pipefail
 
 dnf install -y docker
 systemctl enable --now docker
-install -d -m 0750 -o {{if eq .Recipe.Service.Language "typescript"}}1000 -g 1000{{end}}{{if eq .Recipe.Service.Language "python"}}65532 -g 65532{{end}} /var/lib/reaper
+install -d -m 0750 -o {{if eq .Recipe.Service.Language "go"}}65532 -g 65532{{end}}{{if eq .Recipe.Service.Language "typescript"}}1000 -g 1000{{end}}{{if eq .Recipe.Service.Language "python"}}65532 -g 65532{{end}} /var/lib/reaper
 
 secret() {
   aws --region '${region}' secretsmanager get-secret-value \

@@ -23,7 +23,9 @@ export REAPER_EVALUATION_TOKEN=demo-evaluation
 {{if eq .Recipe.Database.Authority "sqlite"}}export DATABASE_PATH="$work_dir/reaper.db"
 {{end}}{{if eq .Recipe.Database.Authority "postgres"}}: "${DATABASE_URL:?set DATABASE_URL to a disposable PostgreSQL database}"
 {{end}}
-{{if eq .Recipe.Service.Language "typescript"}}npm start >"$work_dir/server.log" 2>&1 &
+{{if eq .Recipe.Service.Language "go"}}go build -o "$work_dir/reaper-flags" ./cmd/reaper-flags
+"$work_dir/reaper-flags" >"$work_dir/server.log" 2>&1 &
+{{end}}{{if eq .Recipe.Service.Language "typescript"}}npm start >"$work_dir/server.log" 2>&1 &
 {{end}}{{if eq .Recipe.Service.Language "python"}}.venv/bin/python -m reaper_flags >"$work_dir/server.log" 2>&1 &
 {{end}}pid=$!
 

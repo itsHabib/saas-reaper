@@ -4,6 +4,7 @@ artifact: factory-and-golden-specimen
 
 factory:
   languages:
+    - go
     - typescript
     - python
   databases:

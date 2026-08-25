@@ -1,7 +1,7 @@
 # Agent operating guide
 
 This repository contains the SaaS Reaper factory and its Go golden specimen. The
-factory composes a recipe into a customer-owned TypeScript or Python feature-flag
+factory composes a recipe into a customer-owned Go, TypeScript, or Python feature-flag
 service, selected database, deployment material, and agent knowledge. The proof
 is intentionally bounded; preserve its compatibility rules unless the operator
 explicitly expands them.
