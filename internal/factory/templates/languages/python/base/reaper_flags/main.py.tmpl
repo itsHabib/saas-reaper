@@ -4,7 +4,7 @@ import os
 from http.server import ThreadingHTTPServer
 
 from reaper_flags.api.routes import Configuration, make_handler
-from reaper_flags.store.{{.Recipe.Database.Authority}} import {{if eq .Recipe.Database.Authority "sqlite"}}SqliteAuthority{{end}}{{if eq .Recipe.Database.Authority "postgres"}}PostgresAuthority{{end}}
+from reaper_flags.store.{{.Recipe.Database.Authority}} import open_authority
 
 
 def required(name: str) -> str:
@@ -15,7 +15,7 @@ def required(name: str) -> str:
 
 
 def main() -> None:
-    authority = {{if eq .Recipe.Database.Authority "sqlite"}}SqliteAuthority(os.environ.get("DATABASE_PATH", "reaper.db")){{end}}{{if eq .Recipe.Database.Authority "postgres"}}PostgresAuthority(required("DATABASE_URL")){{end}}
+    authority = open_authority()
     authority.initialize()
     admin_token = required("REAPER_ADMIN_TOKEN")
     evaluation_token = required("REAPER_EVALUATION_TOKEN")
@@ -27,7 +27,10 @@ def main() -> None:
         evaluation_token=evaluation_token,
     )
     port = int(os.environ.get("PORT", "8080"))
-    server = ThreadingHTTPServer(("0.0.0.0", port), make_handler(authority, configuration))
+    server = ThreadingHTTPServer(
+        ("0.0.0.0", port),
+        make_handler(authority, configuration),
+    )
     print(f"{{.Recipe.Name}} listening on {port}", flush=True)
     try:
         server.serve_forever()

@@ -19,15 +19,14 @@ import (
 
 func main() {
 	if err := run(os.Args[1:], os.Stdin, os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "reaper:", err)
+		_, _ = fmt.Fprintln(os.Stderr, "reaper:", err)
 		os.Exit(1)
 	}
 }
 
 func run(arguments []string, input io.Reader, output io.Writer) error {
 	if len(arguments) == 0 {
-		printUsage(output)
-		return nil
+		return printUsage(output)
 	}
 	switch arguments[0] {
 	case "catalog":
@@ -39,21 +38,22 @@ func run(arguments []string, input io.Reader, output io.Writer) error {
 	case "serve":
 		return serve(arguments[1:], output)
 	case "help", "-h", "--help":
-		printUsage(output)
-		return nil
+		return printUsage(output)
 	default:
 		return fmt.Errorf("unknown command %q", arguments[0])
 	}
 }
 
-func printUsage(output io.Writer) {
-	fmt.Fprintln(output, "SaaS Reaper composes a customer-owned SaaS capability repository.")
-	fmt.Fprintln(output)
-	fmt.Fprintln(output, "Usage:")
-	fmt.Fprintln(output, "  reaper new [--out PATH]                 interactive configurator")
-	fmt.Fprintln(output, "  reaper generate --recipe FILE --out PATH")
-	fmt.Fprintln(output, "  reaper catalog                          machine-readable choices")
-	fmt.Fprintln(output, "  reaper serve [--addr 127.0.0.1:8090]   browser configurator")
+func printUsage(output io.Writer) error {
+	const usage = `SaaS Reaper composes a customer-owned SaaS capability repository.
+
+Usage:
+  reaper new [--out PATH]                 interactive configurator
+  reaper generate --recipe FILE --out PATH
+  reaper catalog                          machine-readable choices
+  reaper serve [--addr 127.0.0.1:8090]   browser configurator
+`
+	return writeOutputf(output, usage)
 }
 
 func serve(arguments []string, output io.Writer) error {
@@ -63,7 +63,9 @@ func serve(arguments []string, output io.Writer) error {
 	if err := command.Parse(arguments); err != nil {
 		return err
 	}
-	fmt.Fprintf(output, "SaaS Reaper configurator: http://%s\n", *address)
+	if err := writeOutputf(output, "SaaS Reaper configurator: http://%s\n", *address); err != nil {
+		return err
+	}
 	return configurator.Serve(*address)
 }
 
@@ -98,8 +100,7 @@ func generate(arguments []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	printResult(output, result)
-	return nil
+	return printResult(output, result)
 }
 
 func configure(arguments []string, input io.Reader, output io.Writer) error {
@@ -111,7 +112,9 @@ func configure(arguments []string, input io.Reader, output io.Writer) error {
 	}
 	reader := bufio.NewReader(input)
 	recipe := factory.DefaultRecipe()
-	fmt.Fprintln(output, "SaaS Reaper — compose your feature-flag service")
+	if err := writeOutputf(output, "SaaS Reaper — compose your feature-flag service\n"); err != nil {
+		return err
+	}
 	name, err := askText(reader, output, "Project name", recipe.Name)
 	if err != nil {
 		return err
@@ -125,12 +128,17 @@ func configure(arguments []string, input io.Reader, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	deployments := compatibleDeployments(recipe.Database.Authority)
+	deployments := factory.CompatibleDeployments(recipe.Database.Authority)
 	recipe.Deployment.Target, err = askChoice(reader, output, "Deployment target", deployments, deployments[0].Value)
 	if err != nil {
 		return err
 	}
-	recipe.Deployment.Replicas, err = askNumber(reader, output, "Replicas", defaultReplicas(recipe.Deployment.Target))
+	recipe.Deployment.Replicas, err = askNumber(
+		reader,
+		output,
+		"Replicas",
+		factory.DefaultReplicas(recipe.Deployment.Target),
+	)
 	if err != nil {
 		return err
 	}
@@ -146,34 +154,13 @@ func configure(arguments []string, input io.Reader, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	printResult(output, result)
-	return nil
-}
-
-func compatibleDeployments(database string) []factory.Choice {
-	all := factory.ProductCatalog().Deployments
-	if database == "postgres" {
-		return all
-	}
-	compatible := make([]factory.Choice, 0, 2)
-	for _, choice := range all {
-		if choice.Value != "docker" && choice.Value != "aws-ec2" {
-			continue
-		}
-		compatible = append(compatible, choice)
-	}
-	return compatible
-}
-
-func defaultReplicas(deployment string) int {
-	if deployment == "aws-ecs" || deployment == "gcp-cloud-run" || deployment == "kubernetes" {
-		return 2
-	}
-	return 1
+	return printResult(output, result)
 }
 
 func askText(reader *bufio.Reader, output io.Writer, label, fallback string) (string, error) {
-	fmt.Fprintf(output, "%s [%s]: ", label, fallback)
+	if err := writeOutputf(output, "%s [%s]: ", label, fallback); err != nil {
+		return "", err
+	}
 	value, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return "", err
@@ -186,16 +173,22 @@ func askText(reader *bufio.Reader, output io.Writer, label, fallback string) (st
 }
 
 func askChoice(reader *bufio.Reader, output io.Writer, label string, choices []factory.Choice, fallback string) (string, error) {
-	fmt.Fprintln(output, label+":")
+	if err := writeOutputf(output, "%s:\n", label); err != nil {
+		return "", err
+	}
 	defaultIndex := 0
 	for index, choice := range choices {
-		fmt.Fprintf(output, "  %d) %s — %s\n", index+1, choice.Label, choice.Description)
+		if err := writeOutputf(output, "  %d) %s — %s\n", index+1, choice.Label, choice.Description); err != nil {
+			return "", err
+		}
 		if choice.Value == fallback {
 			defaultIndex = index
 		}
 	}
 	for {
-		fmt.Fprintf(output, "Choose [%d]: ", defaultIndex+1)
+		if err := writeOutputf(output, "Choose [%d]: ", defaultIndex+1); err != nil {
+			return "", err
+		}
 		value, err := reader.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
 			return "", err
@@ -208,13 +201,17 @@ func askChoice(reader *bufio.Reader, output io.Writer, label string, choices []f
 		if conversionErr == nil && selected > 0 && selected <= len(choices) {
 			return choices[selected-1].Value, nil
 		}
-		fmt.Fprintln(output, "Enter one of the numbered choices.")
+		if err := writeOutputf(output, "Enter one of the numbered choices.\n"); err != nil {
+			return "", err
+		}
 	}
 }
 
 func askNumber(reader *bufio.Reader, output io.Writer, label string, fallback int) (int, error) {
 	for {
-		fmt.Fprintf(output, "%s [%d]: ", label, fallback)
+		if err := writeOutputf(output, "%s [%d]: ", label, fallback); err != nil {
+			return 0, err
+		}
 		value, err := reader.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
 			return 0, err
@@ -227,15 +224,29 @@ func askNumber(reader *bufio.Reader, output io.Writer, label string, fallback in
 		if conversionErr == nil && selected > 0 {
 			return selected, nil
 		}
-		fmt.Fprintln(output, "Enter a positive whole number.")
+		if err := writeOutputf(output, "Enter a positive whole number.\n"); err != nil {
+			return 0, err
+		}
 	}
 }
 
-func printResult(output io.Writer, result factory.Result) {
+func printResult(output io.Writer, result factory.Result) error {
 	if result.Directory != "" {
-		fmt.Fprintln(output, "Repository:", result.Directory)
+		if err := writeOutputf(output, "Repository: %s\n", result.Directory); err != nil {
+			return err
+		}
 	}
 	if result.Archive != "" {
-		fmt.Fprintln(output, "ZIP archive:", result.Archive)
+		if err := writeOutputf(output, "Archive: %s\n", result.Archive); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+func writeOutputf(output io.Writer, format string, arguments ...any) error {
+	if _, err := fmt.Fprintf(output, format, arguments...); err != nil {
+		return fmt.Errorf("write output: %w", err)
+	}
+	return nil
 }

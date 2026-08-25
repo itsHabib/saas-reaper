@@ -75,13 +75,6 @@ resource "aws_ecs_task_definition" "flags" {
       { name = "REAPER_ADMIN_TOKEN", valueFrom = var.admin_token_secret_arn },
       { name = "REAPER_EVALUATION_TOKEN", valueFrom = var.evaluation_token_secret_arn }
     ]
-    healthCheck = {
-      command     = ["CMD-SHELL", {{if eq .Recipe.Service.Language "go"}}"wget -q -O - http://127.0.0.1:8080/healthz || exit 1"{{end}}{{if eq .Recipe.Service.Language "typescript"}}"wget -q -O - http://127.0.0.1:8080/healthz || exit 1"{{end}}{{if eq .Recipe.Service.Language "python"}}"python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')\" || exit 1"{{end}}]
-      interval    = 30
-      retries     = 3
-      startPeriod = 10
-      timeout     = 5
-    }
     logConfiguration = {
       logDriver = "awslogs"
       options = {

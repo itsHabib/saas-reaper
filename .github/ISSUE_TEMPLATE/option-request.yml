@@ -1,0 +1,45 @@
+name: Option request
+description: Propose a language, database, deployment, or delivery pack.
+title: "option: "
+labels:
+  - option
+body:
+  - type: dropdown
+    id: dimension
+    attributes:
+      label: Dimension
+      options:
+        - Language
+        - Database
+        - Deployment
+        - Delivery
+    validations:
+      required: true
+  - type: input
+    id: option
+    attributes:
+      label: Option
+      placeholder: Rust, DynamoDB, Fly.io, tar.gz
+    validations:
+      required: true
+  - type: textarea
+    id: customer
+    attributes:
+      label: Customer need
+      description: Describe the concrete stack or operational constraint this unlocks.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility and authority
+      description: Which existing choices should work, and what durability or replica constraints apply?
+    validations:
+      required: true
+  - type: textarea
+    id: proof
+    attributes:
+      label: Proposed proof
+      description: Name the local demo and provider-native validation that would establish support.
+    validations:
+      required: true

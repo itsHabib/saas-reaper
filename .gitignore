@@ -1,5 +1,17 @@
 .DS_Store
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.key
+*.pem
+credentials*
+secrets/
 .reaper/
+vendor/
+coverage/
+saas-reaper-poc
+*.exe
 examples/python/.venv/
 examples/python/__pycache__/
 examples/typescript/node_modules/

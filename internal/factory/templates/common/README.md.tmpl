@@ -12,24 +12,35 @@ domain record, and agent instructions. It does not call home to SaaS Reaper.
 - Replicas: `{{.Recipe.Deployment.Replicas}}`
 - Tenant concept: `{{.Recipe.Domain.Tenant}}`
 
-`REAPER.yaml` is the normalized customer recipe. `REAPER.lock.yaml` records the
-factory version that produced this repository.
+`REAPER.yaml` is the editable current stack intent. `REAPER.lock.yaml` is the
+immutable generation-origin receipt: it records the original recipe digest and
+exact factory and pack versions. Do not rewrite the origin receipt after a
+customer-owned modification.
 
 ## Run locally
 
 ```sh
 make setup
+{{if eq .Recipe.Database.Authority "sqlite"}}
 make demo
+{{end}}{{if eq .Recipe.Database.Authority "postgres"}}
+DATABASE_URL=postgresql://user:password@localhost/database make demo
+{{end}}
 ```
 
 The demo starts the service, publishes a boolean flag, evaluates a targeting
-match over the OFREP-compatible HTTP surface, and stops the service.
+match over the OFREP-compatible HTTP surface, and stops the service. A
+PostgreSQL demo must use a disposable database; never point it at production.
 
 Run the repository checks:
 
 ```sh
 make check
 ```
+
+Checks require Bash, ShellCheck, `rg`, and the selected language toolchain. The
+demo additionally requires `curl`, `jq`, and the selected database. Deployment
+checks may require the selected provider's CLI.
 
 ## Architecture
 

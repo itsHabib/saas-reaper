@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 
 import psycopg
 from psycopg.rows import dict_row
 
 from reaper_flags.flags.flag import Flag, from_record, publish_revision, to_record
-from reaper_flags.store.contract import RevisionConflict
+from reaper_flags.flags.revision import RevisionConflict
+
+
+def open_authority() -> PostgresAuthority:
+    connection_string = os.environ.get("DATABASE_URL")
+    if not connection_string:
+        raise ValueError("DATABASE_URL is required")
+    return PostgresAuthority(connection_string)
 
 
 class PostgresAuthority:
@@ -56,36 +64,52 @@ class PostgresAuthority:
                     "SELECT revision FROM flags WHERE environment = %s AND key = %s FOR UPDATE",
                     (environment, flag.key),
                 ).fetchone()
-                current = 0
+                current = None
                 if row is not None:
                     current = int(row["revision"])
-                if current != expected_revision:
-                    raise RevisionConflict(
-                        f"expected revision {expected_revision}, current revision {current}"
-                    )
+                require_revision(current, expected_revision)
                 published = publish_revision(flag, expected_revision + 1)
-                connection.execute("""
-                    INSERT INTO flags (environment, key, revision, definition)
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT(environment, key) DO UPDATE SET
-                        revision = EXCLUDED.revision,
-                        definition = EXCLUDED.definition
-                """, (
+                values = (
                     environment,
                     flag.key,
                     published.revision,
                     json.dumps(to_record(published)),
-                ))
-                connection.execute("""
+                )
+                if row is None:
+                    connection.execute(
+                        """
+                        INSERT INTO flags (environment, key, revision, definition)
+                        VALUES (%s, %s, %s, %s)
+                    """,
+                        values,
+                    )
+                if row is not None:
+                    connection.execute(
+                        """
+                        UPDATE flags
+                        SET revision = %s, definition = %s
+                        WHERE environment = %s AND key = %s
+                    """,
+                        (
+                            published.revision,
+                            json.dumps(to_record(published)),
+                            environment,
+                            flag.key,
+                        ),
+                    )
+                connection.execute(
+                    """
                     INSERT INTO audit (environment, key, revision, actor, occurred_at)
                     VALUES (%s, %s, %s, %s, %s)
-                """, (
-                    environment,
-                    flag.key,
-                    published.revision,
-                    actor,
-                    published.updated_at,
-                ))
+                """,
+                    (
+                        environment,
+                        flag.key,
+                        published.revision,
+                        actor,
+                        published.updated_at,
+                    ),
+                )
                 return published
         except psycopg.errors.UniqueViolation as error:
             raise RevisionConflict(
@@ -94,3 +118,14 @@ class PostgresAuthority:
 
     def close(self) -> None:
         return
+
+
+def require_revision(current: int | None, expected: int) -> None:
+    if current is None and expected == 0:
+        return
+    if current == expected:
+        return
+    actual = 0
+    if current is not None:
+        actual = current
+    raise RevisionConflict(f"expected revision {expected}, current revision {actual}")

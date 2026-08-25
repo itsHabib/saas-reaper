@@ -8,9 +8,10 @@ from http.server import BaseHTTPRequestHandler
 from typing import Any
 from urllib.parse import urlparse
 
+from reaper_flags.api.authority import FlagAuthority
 from reaper_flags.flags.evaluate import evaluate
 from reaper_flags.flags.flag import require_record, to_record, validate_flag
-from reaper_flags.store.contract import FlagAuthority, RevisionConflict
+from reaper_flags.flags.revision import RevisionConflict
 
 MANAGEMENT_PATH = re.compile(r"^/v1/environments/([^/]+)/flags/([^/]+)$")
 EVALUATION_PATH = re.compile(r"^/environments/([^/]+)/ofrep/v1/evaluate/flags/([^/]+)$")
@@ -61,7 +62,11 @@ def make_handler(
             require_path_segment(key, "flag key")
             body = require_record(self.read_json(), "request")
             expected_revision = body.get("expectedRevision")
-            if not isinstance(expected_revision, int) or isinstance(expected_revision, bool) or expected_revision < 0:
+            if (
+                not isinstance(expected_revision, int)
+                or isinstance(expected_revision, bool)
+                or expected_revision < 0
+            ):
                 raise ValueError("expectedRevision must be a non-negative whole number")
             flag = validate_flag(body.get("flag"), key)
             published = authority.publish(

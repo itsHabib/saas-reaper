@@ -45,7 +45,7 @@ func TestSQLitePersistsFlagAndAuditAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen sqlite: %v", err)
 	}
-	defer reopenedStore.Close()
+	t.Cleanup(func() { closeStore(t, reopenedStore) })
 	reopened, err := flags.Open(ctx, reopenedStore, snapshot.NewMemory())
 	if err != nil {
 		t.Fatalf("reopen service: %v", err)
@@ -63,5 +63,12 @@ func TestSQLitePersistsFlagAndAuditAtomically(t *testing.T) {
 	}
 	if len(audit) != 1 || audit[0].Key != "new-nav" || audit[0].Actor != "sqlite-test" {
 		t.Fatalf("audit = %#v", audit)
+	}
+}
+
+func closeStore(t *testing.T, store *sqlite.Store) {
+	t.Helper()
+	if err := store.Close(); err != nil {
+		t.Errorf("close sqlite: %v", err)
 	}
 }

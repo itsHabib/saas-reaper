@@ -3,21 +3,28 @@ set -euo pipefail
 
 dnf install -y docker
 systemctl enable --now docker
-install -d -m 0750 -o {{if eq .Recipe.Service.Language "go"}}65532 -g 65532{{end}}{{if eq .Recipe.Service.Language "typescript"}}1000 -g 1000{{end}}{{if eq .Recipe.Service.Language "python"}}65532 -g 65532{{end}} /var/lib/reaper
+install -d -m 0750 -o 65532 -g 65532 /var/lib/reaper
 
 secret() {
+  # Terraform renders this single-quoted placeholder before the script runs.
+  # shellcheck disable=SC2016
   aws --region '${region}' secretsmanager get-secret-value \
     --secret-id "$1" --query SecretString --output text
 }
 
 install -m 0600 /dev/null /etc/reaper.env
-printf 'PORT=8080\n' >>/etc/reaper.env
-printf 'REAPER_ADMIN_ACTOR=%s\n' "$(printf '%s' '${admin_actor_base64}' | base64 -d)" >>/etc/reaper.env
-printf 'REAPER_ADMIN_TOKEN=%s\n' "$(secret '${admin_token_secret_arn}')" >>/etc/reaper.env
-printf 'REAPER_EVALUATION_TOKEN=%s\n' "$(secret '${evaluation_token_secret_arn}')" >>/etc/reaper.env
-{{if eq .Recipe.Database.Authority "sqlite"}}printf 'DATABASE_PATH=/data/reaper.db\n' >>/etc/reaper.env
-{{end}}{{if eq .Recipe.Database.Authority "postgres"}}printf 'DATABASE_URL=%s\n' "$(secret '${database_url_secret_arn}')" >>/etc/reaper.env
-{{end}}
+# Terraform renders the single-quoted placeholders in this group.
+# shellcheck disable=SC2016
+{
+  printf 'PORT=8080\n'
+  printf 'REAPER_ADMIN_ACTOR=%s\n' "$(printf '%s' '${admin_actor_base64}' | base64 -d)"
+  printf 'REAPER_ADMIN_TOKEN=%s\n' "$(secret '${admin_token_secret_arn}')"
+  printf 'REAPER_EVALUATION_TOKEN=%s\n' "$(secret '${evaluation_token_secret_arn}')"
+{{if eq .Recipe.Database.Authority "sqlite"}}  printf 'DATABASE_PATH=/data/reaper.db\n'
+{{end}}{{if eq .Recipe.Database.Authority "postgres"}}  printf 'DATABASE_URL=%s\n' "$(secret '${database_url_secret_arn}')"
+{{end}}} >>/etc/reaper.env
+# Terraform renders the single-quoted image placeholder before the script runs.
+# shellcheck disable=SC2016
 docker run --detach --restart unless-stopped --name {{.Recipe.Name}} \
   --publish 8080:8080 \
   --env-file /etc/reaper.env \

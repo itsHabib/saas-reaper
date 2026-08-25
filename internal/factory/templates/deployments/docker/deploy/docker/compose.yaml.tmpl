@@ -14,7 +14,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-  postgres:
+{{end}}    ports:
+      - "8080:8080"
+{{if eq .Recipe.Database.Authority "postgres"}}  postgres:
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: reaper
@@ -27,8 +29,7 @@ services:
       retries: 20
     volumes:
       - postgres-data:/var/lib/postgresql/data
-{{end}}    ports:
-      - "8080:8080"
+{{end}}
 
 volumes:
 {{if eq .Recipe.Database.Authority "sqlite"}}  reaper-data:

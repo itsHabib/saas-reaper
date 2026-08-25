@@ -3,7 +3,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { evaluate } from "../flags/evaluate.ts";
 import { validateFlag } from "../flags/flag.ts";
-import { RevisionConflict, type FlagAuthority } from "../store/contract.ts";
+import { RevisionConflict } from "../flags/revision.ts";
+import type { FlagAuthority } from "./authority.ts";
 
 interface Configuration {
   adminToken: string;

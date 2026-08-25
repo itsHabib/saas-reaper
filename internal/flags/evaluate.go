@@ -71,7 +71,8 @@ func inRollout(key string, rollout Rollout, context map[string]any) bool {
 	}
 	digest := sha256.Sum256([]byte(key + "\x00" + value))
 	bucket := binary.BigEndian.Uint64(digest[:8]) % 10_000
-	return bucket < uint64(rollout.Percentage*100)
+	threshold := uint64(rollout.Percentage) * 100 //nolint:gosec // Flag validation constrains percentage to 0..100.
+	return bucket < threshold
 }
 
 func resolve(flag Flag, variant, reason string) Evaluation {

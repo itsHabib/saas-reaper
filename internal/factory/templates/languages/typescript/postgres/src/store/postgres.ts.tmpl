@@ -1,11 +1,19 @@
 import pg from "pg";
 
 import type { Flag } from "../flags/flag.ts";
-import { RevisionConflict, type FlagAuthority } from "./contract.ts";
+import { RevisionConflict } from "../flags/revision.ts";
 
 const { Pool } = pg;
 
-export class PostgresAuthority implements FlagAuthority {
+export function openAuthority(): PostgresAuthority {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required");
+  }
+  return new PostgresAuthority(connectionString);
+}
+
+export class PostgresAuthority {
   readonly #pool: pg.Pool;
 
   constructor(connectionString: string) {
@@ -50,13 +58,19 @@ export class PostgresAuthority implements FlagAuthority {
       );
       requireRevision(current.rows[0]?.revision, expectedRevision);
       const published = { ...flag, revision: expectedRevision + 1, updatedAt: new Date().toISOString() };
-      await client.query(`
-        INSERT INTO flags (environment, key, revision, definition)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT(environment, key) DO UPDATE SET
-          revision = EXCLUDED.revision,
-          definition = EXCLUDED.definition
-      `, [environment, flag.key, published.revision, published]);
+      if (current.rows.length === 0) {
+        await client.query(`
+          INSERT INTO flags (environment, key, revision, definition)
+          VALUES ($1, $2, $3, $4)
+        `, [environment, flag.key, published.revision, published]);
+      }
+      if (current.rows.length > 0) {
+        await client.query(`
+          UPDATE flags
+          SET revision = $3, definition = $4
+          WHERE environment = $1 AND key = $2
+        `, [environment, flag.key, published.revision, published]);
+      }
       await client.query(`
         INSERT INTO audit (environment, key, revision, actor, occurred_at)
         VALUES ($1, $2, $3, $4, $5)

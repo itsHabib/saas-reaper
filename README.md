@@ -53,9 +53,10 @@ a small SaaS capability can arrive runnable, understandable, and safe for an
 agent to adapt to a customer's domain.
 
 Prerequisites: Go 1.25 or newer, Node.js 24 or newer with npm, Python 3.11 or
-newer, Bash, `curl`, `jq`, and `rsync`. The product demo also uses Docker Compose,
-Terraform 1.8 or newer, and `unzip`. The golden demo binds loopback port `18080`
-and uses a temporary database.
+newer, Bash, ShellCheck, `curl`, `jq`, and `rsync`. The product demo also uses
+Docker Compose, Terraform 1.8 or newer, and `unzip`. The golden demo binds
+loopback port `18080` and uses a temporary database. Go-pinned tooling supplies
+the remaining linters.
 
 Run the complete demo:
 
@@ -70,6 +71,14 @@ Run the validation floor:
 ```sh
 make check
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the executable option-extension
+contract and concrete recipes for adding a language, database, deployment, or
+delivery format. The catalog and template pack directories must agree exactly;
+the complete render matrix and product demo prevent half-registered choices
+from shipping.
 
 The validation includes a bounded domain-adaptation control: in a temporary copy, it follows the shipped skill to approve `organization.plan`, updates only domain policy/docs/tests, and proves the new targeting rule without coupling API or storage. The shipped specimen remains unchanged.
 

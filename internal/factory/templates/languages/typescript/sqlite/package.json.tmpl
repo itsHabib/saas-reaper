@@ -10,12 +10,9 @@
     "check": "tsc --noEmit && node --test src/**/*.test.ts",
     "start": "node src/main.ts"
   },
-  "dependencies": { {{if eq .Recipe.Database.Authority "postgres"}}
-    "pg": "8.16.3"{{end}}
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@types/node": "24.3.0",{{if eq .Recipe.Database.Authority "postgres"}}
-    "@types/pg": "8.15.5",{{end}}
+    "@types/node": "24.3.0",
     "typescript": "5.9.2"
   }
 }

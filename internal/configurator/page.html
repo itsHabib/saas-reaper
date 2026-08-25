@@ -85,8 +85,8 @@
     }
 
     function compatible(choice) {
-      if (database.value === "postgres") return true;
-      return choice.value === "docker" || choice.value === "aws-ec2";
+      const allowed = catalog.compatibility.deploymentsByDatabase[database.value] ?? [];
+      return allowed.includes(choice.value);
     }
 
     function renderDeployments() {
@@ -97,10 +97,14 @@
     }
 
     function updateReplicas() {
-      const single = deployment.value === "docker" || deployment.value === "aws-ec2";
+      const policy = catalog.compatibility.replicasByDeployment[deployment.value];
+      if (!policy) return;
+      const single = policy?.maximum === 1;
       replicas.disabled = single;
-      if (single) replicas.value = "1";
-      if (!single && Number(replicas.value) < 2) replicas.value = "2";
+      if (single) replicas.value = String(policy.default);
+      if (!single && Number(replicas.value) < policy.default) replicas.value = String(policy.default);
+      if (policy?.maximum) replicas.max = String(policy.maximum);
+      if (!policy?.maximum) replicas.removeAttribute("max");
       updateReceipt();
     }
 

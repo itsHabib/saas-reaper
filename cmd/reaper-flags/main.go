@@ -41,7 +41,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer func() {
+		if closeErr := store.Close(); closeErr != nil {
+			slog.Error("close flag store", "error", closeErr)
+		}
+	}()
 	service, err := flags.Open(context.Background(), store, snapshot.NewMemory())
 	if err != nil {
 		return err

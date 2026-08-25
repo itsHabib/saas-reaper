@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"example.com/{{.Recipe.Name}}/internal/flags"
@@ -16,6 +17,14 @@ import (
 
 type Authority struct {
 	pool *pgxpool.Pool
+}
+
+func OpenFromEnvironment(ctx context.Context) (*Authority, error) {
+	connectionString := os.Getenv("DATABASE_URL")
+	if connectionString == "" {
+		return nil, errors.New("DATABASE_URL is required")
+	}
+	return Open(ctx, connectionString)
 }
 
 func Open(ctx context.Context, connectionString string) (*Authority, error) {

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/itsHabib/saas-reaper-poc/internal/factory"
@@ -90,7 +91,7 @@ func generate(response http.ResponseWriter, request *http.Request) {
 	}
 	response.Header().Set("Content-Type", "application/zip")
 	response.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, recipe.Name))
-	response.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+	response.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	response.WriteHeader(http.StatusOK)
 	_, _ = response.Write(body)
 }

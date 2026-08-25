@@ -1,14 +1,18 @@
 import { DatabaseSync } from "node:sqlite";
 
 import type { Flag } from "../flags/flag.ts";
-import { RevisionConflict, type FlagAuthority } from "./contract.ts";
+import { RevisionConflict } from "../flags/revision.ts";
 
 interface StoredFlag {
   definition: string;
   revision: number;
 }
 
-export class SqliteAuthority implements FlagAuthority {
+export function openAuthority(): SqliteAuthority {
+  return new SqliteAuthority(process.env.DATABASE_PATH ?? "reaper.db");
+}
+
+export class SqliteAuthority {
   readonly #database: DatabaseSync;
 
   constructor(path: string) {

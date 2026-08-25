@@ -26,7 +26,8 @@ git init --quiet
 git apply fixtures/add-organization-plan.patch
 gofmt -w internal/flags/context.go internal/flags/evaluate_test.go
 go test -race ./internal/flags
-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run ./internal/flags/...
+GOLANGCI_LINT_CACHE="$trial_dir/golangci-cache" \
+  go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run ./internal/flags/...
 ./scripts/check-boundaries.sh
 
 rg --quiet 'organization\.plan' internal/flags/context.go

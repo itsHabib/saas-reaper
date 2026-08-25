@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -14,7 +15,7 @@ import (
 )
 
 func TestPageAndCatalog(t *testing.T) {
-	pageRequest := httptest.NewRequest(http.MethodGet, "/", nil)
+	pageRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	pageResponse := httptest.NewRecorder()
 	Handler().ServeHTTP(pageResponse, pageRequest)
 	if pageResponse.Code != http.StatusOK {
@@ -24,7 +25,7 @@ func TestPageAndCatalog(t *testing.T) {
 		t.Fatal("page does not contain the product action")
 	}
 
-	catalogRequest := httptest.NewRequest(http.MethodGet, "/api/catalog", nil)
+	catalogRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/catalog", nil)
 	catalogResponse := httptest.NewRecorder()
 	Handler().ServeHTTP(catalogResponse, catalogRequest)
 	if catalogResponse.Code != http.StatusOK {
@@ -32,6 +33,14 @@ func TestPageAndCatalog(t *testing.T) {
 	}
 	if !strings.Contains(catalogResponse.Body.String(), "gcp-cloud-run") {
 		t.Fatal("catalog does not expose the GCP deployment")
+	}
+	var catalogBody factory.Catalog
+	if err := json.Unmarshal(catalogResponse.Body.Bytes(), &catalogBody); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docker", "aws-ec2"}
+	if got := catalogBody.Compatibility.DeploymentsByDatabase["sqlite"]; !slices.Equal(got, want) {
+		t.Fatalf("SQLite deployments = %v, want %v", got, want)
 	}
 }
 
@@ -42,7 +51,7 @@ func TestGenerateDownloadsOwnedRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/api/generate", bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/generate", bytes.NewReader(body))
 	response := httptest.NewRecorder()
 	Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -68,13 +77,13 @@ func TestGenerateRejectsUnsafeSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "/api/generate", bytes.NewReader(body))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/generate", bytes.NewReader(body))
 	response := httptest.NewRecorder()
 	Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("generate status = %d, want 422", response.Code)
 	}
-	if !strings.Contains(response.Body.String(), "requires postgres") {
+	if !strings.Contains(response.Body.String(), "requires a shared database") {
 		t.Fatalf("unexpected error: %s", response.Body.String())
 	}
 }

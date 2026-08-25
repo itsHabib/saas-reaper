@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+work_dir=${1:?usage: start-language.sh WORK_DIR}
+go build -o "$work_dir/reaper-flags" ./cmd/reaper-flags
+exec "$work_dir/reaper-flags"

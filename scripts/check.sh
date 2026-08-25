@@ -14,6 +14,9 @@ fi
 go vet ./...
 go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run
 go test -race ./...
+go run mvdan.cc/sh/v3/cmd/shfmt@v3.13.1 -d -i 2 -ci -sr scripts
+shellcheck scripts/*.sh
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 npm --prefix examples/typescript run check
 examples/python/.venv/bin/python -m py_compile examples/python/client.py
 ./scripts/check-boundaries.sh

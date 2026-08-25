@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 
 import { routes } from "./api/routes.ts";
-import { {{if eq .Recipe.Database.Authority "sqlite"}}SqliteAuthority{{end}}{{if eq .Recipe.Database.Authority "postgres"}}PostgresAuthority{{end}} } from "./store/{{.Recipe.Database.Authority}}.ts";
+import { openAuthority } from "./store/{{.Recipe.Database.Authority}}.ts";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -11,7 +11,7 @@ function required(name: string): string {
   return value;
 }
 
-const authority = new {{if eq .Recipe.Database.Authority "sqlite"}}SqliteAuthority(process.env.DATABASE_PATH ?? "reaper.db"){{end}}{{if eq .Recipe.Database.Authority "postgres"}}PostgresAuthority(required("DATABASE_URL")){{end}};
+const authority = openAuthority();
 await authority.initialize();
 
 const adminToken = required("REAPER_ADMIN_TOKEN");

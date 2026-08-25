@@ -4,17 +4,12 @@ set -euo pipefail
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_dir"
 
-{{if eq .Recipe.Service.Language "go"}}unformatted=$(gofmt -l cmd internal)
-if [[ -n "$unformatted" ]]; then
-  printf 'unformatted Go source:\n%s\n' "$unformatted" >&2
-  exit 1
-fi
-go vet ./...
-go test -race ./...
-{{end}}{{if eq .Recipe.Service.Language "typescript"}}npm run check
-{{end}}{{if eq .Recipe.Service.Language "python"}}.venv/bin/python -m compileall -q reaper_flags tests
-.venv/bin/python -m unittest discover -s tests -v
-{{end}}
+bash scripts/check-language.sh
+
+while IFS= read -r script; do
+  shellcheck "$script"
+done < <(find scripts deploy -type f -name '*.sh' -print)
+
 banned='^(model|models|type|types|util|utils|helper|helpers|common|misc|service|manager)\.(go|ts|py)$'
 while IFS= read -r file; do
   base=${file##*/}

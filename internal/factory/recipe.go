@@ -53,7 +53,7 @@ type Domain struct {
 
 // ReadRecipe decodes a strict customer recipe.
 func ReadRecipe(path string) (Recipe, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // The CLI caller explicitly selects the local recipe path.
 	if err != nil {
 		return Recipe{}, fmt.Errorf("read recipe: %w", err)
 	}

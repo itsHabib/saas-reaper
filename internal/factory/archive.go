@@ -32,7 +32,7 @@ func writeArchive(source, destination, rootName string) error {
 		if err != nil {
 			return err
 		}
-		sourceFile, err := os.Open(path)
+		sourceFile, err := os.Open(path) //nolint:gosec // WalkDir produced path from the selected generation root.
 		if err != nil {
 			return err
 		}
@@ -54,8 +54,8 @@ func writeArchive(source, destination, rootName string) error {
 	if closeFileErr != nil {
 		return fmt.Errorf("close archive: %w", closeFileErr)
 	}
-	if err := os.Rename(temporary, destination); err != nil {
-		return fmt.Errorf("publish archive: %w", err)
+	if err := os.Link(temporary, destination); err != nil {
+		return fmt.Errorf("publish archive without overwrite: %w", err)
 	}
 	return nil
 }

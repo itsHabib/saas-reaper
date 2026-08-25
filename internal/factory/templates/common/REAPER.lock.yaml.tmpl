@@ -1,7 +1,8 @@
-schema: reaper.dev/lock/v1
+schema: reaper.dev/lock/v2
 factoryVersion: {{.FactoryVersion}}
-recipeDigest: {{.RecipeDigest}}
+originRecipeDigest: {{.RecipeDigest}}
 capabilityContract: feature-flags/ofrep-0.3
-languagePack: {{.Recipe.Service.Language}}/v1
-databasePack: {{.Recipe.Database.Authority}}/v1
-deploymentPack: {{.Recipe.Deployment.Target}}/v1
+languagePack: {{.Recipe.Service.Language}}/{{.LanguageVersion}}
+databasePack: {{.Recipe.Database.Authority}}/{{.DatabaseVersion}}
+deploymentPack: {{.Recipe.Deployment.Target}}/{{.DeploymentVersion}}
+deliveryPack: {{.Recipe.Delivery.Format}}/{{.DeliveryVersion}}

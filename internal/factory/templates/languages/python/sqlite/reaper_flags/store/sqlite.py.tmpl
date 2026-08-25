@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from pathlib import Path
 
 from reaper_flags.flags.flag import Flag, from_record, publish_revision, to_record
-from reaper_flags.store.contract import RevisionConflict
+from reaper_flags.flags.revision import RevisionConflict
+
+
+def open_authority() -> SqliteAuthority:
+    return SqliteAuthority(os.environ.get("DATABASE_PATH", "reaper.db"))
 
 
 class SqliteAuthority:
@@ -52,31 +57,47 @@ class SqliteAuthority:
         expected_revision: int,
         actor: str,
     ) -> Flag:
-        with self.lock:
-            with self.connection:
-                row = self.connection.execute(
-                    "SELECT revision FROM flags WHERE environment = ? AND key = ?",
-                    (environment, flag.key),
-                ).fetchone()
-                current = 0
-                if row is not None:
-                    current = int(row["revision"])
-                if current != expected_revision:
-                    raise RevisionConflict(
-                        f"expected revision {expected_revision}, current revision {current}"
-                    )
-                published = publish_revision(flag, expected_revision + 1)
-                self.connection.execute("""
-                    INSERT INTO flags (environment, key, revision, definition)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(environment, key) DO UPDATE SET
-                        revision = excluded.revision,
-                        definition = excluded.definition
-                """, (environment, flag.key, published.revision, json.dumps(to_record(published))))
-                self.connection.execute("""
-                    INSERT INTO audit (environment, key, revision, actor, occurred_at)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (environment, flag.key, published.revision, actor, published.updated_at))
+        with self.lock, self.connection:
+            row = self.connection.execute(
+                "SELECT revision FROM flags WHERE environment = ? AND key = ?",
+                (environment, flag.key),
+            ).fetchone()
+            current = 0
+            if row is not None:
+                current = int(row["revision"])
+            if current != expected_revision:
+                raise RevisionConflict(
+                    f"expected revision {expected_revision}, current revision {current}"
+                )
+            published = publish_revision(flag, expected_revision + 1)
+            self.connection.execute(
+                """
+                INSERT INTO flags (environment, key, revision, definition)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(environment, key) DO UPDATE SET
+                    revision = excluded.revision,
+                    definition = excluded.definition
+            """,
+                (
+                    environment,
+                    flag.key,
+                    published.revision,
+                    json.dumps(to_record(published)),
+                ),
+            )
+            self.connection.execute(
+                """
+                INSERT INTO audit (environment, key, revision, actor, occurred_at)
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (
+                    environment,
+                    flag.key,
+                    published.revision,
+                    actor,
+                    published.updated_at,
+                ),
+            )
         return published
 
     def close(self) -> None:

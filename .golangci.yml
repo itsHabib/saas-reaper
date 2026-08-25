@@ -6,10 +6,49 @@ run:
 linters:
   default: none
   enable:
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - copyloopvar
     - cyclop
+    - durationcheck
+    - errcheck
+    - errname
+    - errorlint
+    - fatcontext
     - gocognit
+    - gocheckcompilerdirectives
+    - gocritic
+    - godoclint
+    - gomoddirectives
+    - goprintffuncname
+    - gosec
+    - govet
+    - ineffassign
+    - intrange
+    - loggercheck
+    - makezero
+    - misspell
+    - musttag
     - nestif
+    - nilerr
+    - nilnesserr
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - perfsprint
+    - predeclared
+    - reassign
+    - recvcheck
     - revive
+    - rowserrcheck
+    - sloglint
+    - sqlclosecheck
+    - staticcheck
+    - unconvert
+    - unused
+    - usestdlibvars
+    - whitespace
   settings:
     cyclop:
       max-complexity: 15
@@ -17,3 +56,16 @@ linters:
       min-complexity: 20
     nestif:
       min-complexity: 4
+    errcheck:
+      exclude-functions:
+        - os.Remove
+        - os.RemoveAll
+        - (*archive/zip.ReadCloser).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Tx).Rollback
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - bodyclose
+          - gosec

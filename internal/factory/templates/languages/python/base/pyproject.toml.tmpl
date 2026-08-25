@@ -3,5 +3,17 @@ name = "{{.ModuleName}}"
 version = "0.1.0"
 requires-python = ">=3.11"
 
-[tool.pyright]
-typeCheckingMode = "strict"
+[tool.mypy]
+strict = true
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "SIM", "S", "UP", "RUF"]
+ignore = [
+    "S104", # The generated HTTP service intentionally binds all container interfaces.
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]

@@ -10,8 +10,8 @@ evaluation_token=demo-evaluation-token
 
 cleanup() {
   if [[ -n "$server_pid" ]]; then
-    kill "$server_pid" 2>/dev/null || true
-    wait "$server_pid" 2>/dev/null || true
+    kill "$server_pid" 2> /dev/null || true
+    wait "$server_pid" 2> /dev/null || true
   fi
   if [[ "$demo_dir" == /tmp/* || "$demo_dir" == /var/folders/* ]]; then
     rm -rf -- "$demo_dir"
@@ -21,16 +21,16 @@ trap cleanup EXIT
 
 cd "$repo_dir"
 REAPER_ADMIN_TOKEN=$admin_token \
-REAPER_ADMIN_ACTOR=demo \
-REAPER_EVALUATION_TOKEN=$evaluation_token \
-REAPER_DB="$demo_dir/flags.db" \
-REAPER_ADDR=127.0.0.1:18080 \
-  go run ./cmd/reaper-flags >"$demo_dir/server.log" 2>&1 &
+  REAPER_ADMIN_ACTOR=demo \
+  REAPER_EVALUATION_TOKEN=$evaluation_token \
+  REAPER_DB="$demo_dir/flags.db" \
+  REAPER_ADDR=127.0.0.1:18080 \
+  go run ./cmd/reaper-flags > "$demo_dir/server.log" 2>&1 &
 server_pid=$!
 
 ready=false
 for _ in {1..100}; do
-  if curl --fail --silent "$base_url/healthz" >/dev/null; then
+  if curl --fail --silent "$base_url/healthz" > /dev/null; then
     ready=true
     break
   fi
@@ -46,30 +46,30 @@ curl --fail-with-body --silent --show-error \
   -X PUT "$base_url/v1/environments/production/flags/checkout-v2" \
   -H "Authorization: Bearer $admin_token" \
   -H 'Content-Type: application/json' \
-  --data-binary @fixtures/publish-checkout-v2.json >/dev/null
+  --data-binary @fixtures/publish-checkout-v2.json > /dev/null
 
 run_go() {
   OFREP_ENDPOINT="$base_url/environments/production" \
-  REAPER_EVALUATION_TOKEN=$evaluation_token \
-  TARGETING_KEY=$1 \
-  ORGANIZATION_ID=$2 \
+    REAPER_EVALUATION_TOKEN=$evaluation_token \
+    TARGETING_KEY=$1 \
+    ORGANIZATION_ID=$2 \
     go run ./examples/go
 }
 
 run_typescript() {
   OFREP_ENDPOINT="$base_url/environments/production" \
-  REAPER_EVALUATION_TOKEN=$evaluation_token \
-  TARGETING_KEY=$1 \
-  ORGANIZATION_ID=$2 \
-  NODE_NO_WARNINGS=1 \
+    REAPER_EVALUATION_TOKEN=$evaluation_token \
+    TARGETING_KEY=$1 \
+    ORGANIZATION_ID=$2 \
+    NODE_NO_WARNINGS=1 \
     npm --prefix examples/typescript run --silent start
 }
 
 run_python() {
   OFREP_ENDPOINT="$base_url/environments/production" \
-  REAPER_EVALUATION_TOKEN=$evaluation_token \
-  TARGETING_KEY=$1 \
-  ORGANIZATION_ID=$2 \
+    REAPER_EVALUATION_TOKEN=$evaluation_token \
+    TARGETING_KEY=$1 \
+    ORGANIZATION_ID=$2 \
     examples/python/.venv/bin/python examples/python/client.py
 }
 
@@ -79,7 +79,7 @@ assert_result() {
   value=$3
   variant=$4
   reason=$5
-  actual=$(jq -r '[.language, (.value|tostring), .variant, .reason] | join("|")' <<<"$output")
+  actual=$(jq -r '[.language, (.value|tostring), .variant, .reason] | join("|")' <<< "$output")
   expected="$language|$value|$variant|$reason"
   if [[ "$actual" != "$expected" ]]; then
     echo "client mismatch: got $actual, want $expected" >&2
@@ -112,5 +112,5 @@ run_scenario user-2 other false off STATIC
 echo "audit trail"
 curl --fail --silent \
   "$base_url/v1/audit?limit=10" \
-  -H "Authorization: Bearer $admin_token" \
-  | jq -c '.audit | map({sequence, key, revision, actor})'
+  -H "Authorization: Bearer $admin_token" |
+  jq -c '.audit | map({sequence, key, revision, actor})'

@@ -5,10 +5,6 @@ from typing import Protocol
 from reaper_flags.flags.flag import Flag
 
 
-class RevisionConflict(Exception):
-    """A publish used a stale expected revision."""
-
-
 class FlagAuthority(Protocol):
     def initialize(self) -> None: ...
 

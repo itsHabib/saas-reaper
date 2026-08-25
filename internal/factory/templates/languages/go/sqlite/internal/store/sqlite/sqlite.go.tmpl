@@ -19,6 +19,14 @@ type Authority struct {
 	database *sql.DB
 }
 
+func OpenFromEnvironment(ctx context.Context) (*Authority, error) {
+	path := os.Getenv("DATABASE_PATH")
+	if path == "" {
+		path = "reaper.db"
+	}
+	return Open(ctx, path)
+}
+
 func Open(_ context.Context, path string) (*Authority, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("create database directory: %w", err)

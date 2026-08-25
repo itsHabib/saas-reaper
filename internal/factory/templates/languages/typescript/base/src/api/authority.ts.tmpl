@@ -1,7 +1,5 @@
 import type { Flag } from "../flags/flag.ts";
 
-export class RevisionConflict extends Error {}
-
 export interface FlagAuthority {
   initialize(): Promise<void>;
   load(environment: string, key: string): Promise<Flag | undefined>;

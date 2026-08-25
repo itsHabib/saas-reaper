@@ -1,4 +1,4 @@
-.PHONY: setup demo product-demo check
+.PHONY: setup demo product-demo check verify
 
 setup:
 	./scripts/setup.sh
@@ -11,3 +11,5 @@ product-demo: setup
 
 check: setup
 	./scripts/check.sh
+
+verify: check product-demo

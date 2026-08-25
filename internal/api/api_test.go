@@ -45,13 +45,13 @@ func TestManagementAndOFREPSurfacesStaySeparated(t *testing.T) {
 	if unauthorized.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unauthorized publish status = %d", unauthorized.StatusCode)
 	}
-	unauthorized.Body.Close()
+	closeResponse(t, unauthorized)
 	publishBody["actor"] = "forged-actor"
 	forged := doJSON(t, http.MethodPut, server.URL+"/v1/environments/production/flags/checkout-v2", adminToken, publishBody, nil)
 	if forged.StatusCode != http.StatusBadRequest {
 		t.Fatalf("caller-supplied actor status = %d, want 400", forged.StatusCode)
 	}
-	forged.Body.Close()
+	closeResponse(t, forged)
 	delete(publishBody, "actor")
 	published := doJSON(t, http.MethodPut, server.URL+"/v1/environments/production/flags/checkout-v2", adminToken, publishBody, nil)
 	assertStatus(t, published, http.StatusOK)
@@ -94,7 +94,7 @@ func TestManagementAndOFREPSurfacesStaySeparated(t *testing.T) {
 	if adminOnEvaluation.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("admin token on evaluation status = %d", adminOnEvaluation.StatusCode)
 	}
-	adminOnEvaluation.Body.Close()
+	closeResponse(t, adminOnEvaluation)
 }
 
 func TestOFREPBulkEvaluationUsesETag(t *testing.T) {
@@ -115,7 +115,7 @@ func TestOFREPBulkEvaluationUsesETag(t *testing.T) {
 	if etag == "" {
 		t.Fatal("bulk evaluation did not return ETag")
 	}
-	first.Body.Close()
+	closeResponse(t, first)
 	second := doJSON(
 		t,
 		http.MethodPost,
@@ -127,7 +127,7 @@ func TestOFREPBulkEvaluationUsesETag(t *testing.T) {
 	if second.StatusCode != http.StatusNotModified {
 		t.Fatalf("conditional bulk status = %d, want 304", second.StatusCode)
 	}
-	second.Body.Close()
+	closeResponse(t, second)
 }
 
 func TestOFREPRejectsMissingTargetingKey(t *testing.T) {
@@ -176,7 +176,7 @@ func TestAuthorizationRequiresBearerScheme(t *testing.T) {
 	if err != nil {
 		t.Fatalf("send request: %v", err)
 	}
-	defer response.Body.Close()
+	defer closeResponse(t, response)
 	if response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("raw token status = %d, want 401", response.StatusCode)
 	}
@@ -213,7 +213,7 @@ func publishFixture(t *testing.T, baseURL string) {
 	}
 	response := doJSON(t, http.MethodPut, baseURL+"/v1/environments/production/flags/checkout-v2", adminToken, body, nil)
 	assertStatus(t, response, http.StatusOK)
-	response.Body.Close()
+	closeResponse(t, response)
 }
 
 func doJSON(
@@ -253,14 +253,21 @@ func assertStatus(t *testing.T, response *http.Response, expected int) {
 		return
 	}
 	body, _ := io.ReadAll(response.Body)
-	response.Body.Close()
+	closeResponse(t, response)
 	t.Fatalf("status = %d, want %d; body=%s", response.StatusCode, expected, body)
 }
 
 func decodeResponse(t *testing.T, response *http.Response, destination any) {
 	t.Helper()
-	defer response.Body.Close()
+	defer closeResponse(t, response)
 	if err := json.NewDecoder(response.Body).Decode(destination); err != nil {
 		t.Fatalf("decode response: %v", err)
+	}
+}
+
+func closeResponse(t *testing.T, response *http.Response) {
+	t.Helper()
+	if err := response.Body.Close(); err != nil {
+		t.Fatalf("close response body: %v", err)
 	}
 }

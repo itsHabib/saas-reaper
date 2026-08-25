@@ -1,0 +1,18 @@
+title = "SaaS Reaper secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Intentional throwaway bearer values in the generated local demo"
+condition = "AND"
+paths = ['''internal/factory/templates/common/scripts/demo\.sh\.tmpl$''']
+regexTarget = "line"
+regexes = ['''Authorization: Bearer demo-(admin|evaluation)''']
+
+[[allowlists]]
+description = "Pinned modernc module checksum, not an API credential"
+condition = "AND"
+paths = ['''internal/factory/templates/languages/go/sqlite/go\.sum\.tmpl$''']
+regexTarget = "line"
+regexes = ['''modernc\.org/token v1\.1\.0 h1:''']

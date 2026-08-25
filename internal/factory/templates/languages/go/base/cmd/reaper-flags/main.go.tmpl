@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"example.com/{{.Recipe.Name}}/internal/api"
-	"example.com/{{.Recipe.Name}}/internal/store/{{.Recipe.Database.Authority}}"
+	database "example.com/{{.Recipe.Name}}/internal/store/{{.Recipe.Database.Authority}}"
 )
 
 func main() {
@@ -35,12 +35,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-{{if eq .Recipe.Database.Authority "sqlite"}}	databaseSource := environment("DATABASE_PATH", "reaper.db")
-{{end}}{{if eq .Recipe.Database.Authority "postgres"}}	databaseSource, err := required("DATABASE_URL")
-	if err != nil {
-		return err
-	}
-{{end}}	authority, err := {{.Recipe.Database.Authority}}.Open(context.Background(), databaseSource)
+	authority, err := database.OpenFromEnvironment(context.Background())
 	if err != nil {
 		return err
 	}

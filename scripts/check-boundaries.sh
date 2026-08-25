@@ -4,7 +4,7 @@ set -euo pipefail
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_dir"
 
-banned='^(model|models|type|types|util|utils|helper|helpers|common|misc|service|manager)\.(go|ts|py)$'
+banned='^(model|models|type|types|util|utils|helper|helpers|common|misc|service|manager)\.(go|ts|py)(\.tmpl)?$'
 while IFS= read -r file; do
   base=${file##*/}
   if [[ "$base" =~ $banned ]]; then
@@ -13,15 +13,21 @@ while IFS= read -r file; do
   fi
 done < <(rg --files \
   -g '*.go' \
+  -g '*.go.tmpl' \
   -g '*.ts' \
+  -g '*.ts.tmpl' \
   -g '*.py' \
+  -g '*.py.tmpl' \
   -g '!examples/typescript/node_modules/**' \
   -g '!examples/python/.venv/**')
 
 if rg -n '\belse\b' \
   -g '*.go' \
+  -g '*.go.tmpl' \
   -g '*.ts' \
+  -g '*.ts.tmpl' \
   -g '*.py' \
+  -g '*.py.tmpl' \
   -g '!examples/typescript/node_modules/**' \
   -g '!examples/python/.venv/**' \
   .; then

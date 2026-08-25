@@ -17,10 +17,13 @@ class EvaluateTest(unittest.TestCase):
             rules=(Rule(attribute="organization.id", equals="acme", variant="on"),),
             revision=3,
         )
-        decision = evaluate(flag, {
-            "targetingKey": "user-1",
-            "organization": {"id": "acme"},
-        })
+        decision = evaluate(
+            flag,
+            {
+                "targetingKey": "user-1",
+                "organization": {"id": "acme"},
+            },
+        )
         self.assertEqual(decision.value, True)
         self.assertEqual(decision.reason, "TARGETING_MATCH")
 
@@ -41,11 +44,13 @@ class EvaluateTest(unittest.TestCase):
             "enabled": True,
             "defaultVariant": "off",
             "variants": {"off": False, "on": True},
-            "rules": [{
-                "attribute": "user.email",
-                "equals": "private@example.test",
-                "variant": "on",
-            }],
+            "rules": [
+                {
+                    "attribute": "user.email",
+                    "equals": "private@example.test",
+                    "variant": "on",
+                }
+            ],
         }
         with self.assertRaisesRegex(ValueError, "not approved"):
             validate_flag(definition, "checkout-v2")

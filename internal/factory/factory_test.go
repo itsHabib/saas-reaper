@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,8 +17,8 @@ import (
 func TestValidateRejectsUnsafeSQLiteDeployment(t *testing.T) {
 	recipe := DefaultRecipe()
 	recipe.Deployment.Target = "kubernetes"
-	if err := Validate(recipe); err == nil || !strings.Contains(err.Error(), "requires postgres") {
-		t.Fatalf("expected postgres compatibility error, got %v", err)
+	if err := Validate(recipe); err == nil || !strings.Contains(err.Error(), "requires a shared database") {
+		t.Fatalf("expected shared-database compatibility error, got %v", err)
 	}
 }
 
@@ -28,6 +29,14 @@ func TestValidateRejectsReplicaCountIgnoredByTarget(t *testing.T) {
 	recipe.Deployment.Replicas = 2
 	if err := Validate(recipe); err == nil || !strings.Contains(err.Error(), "exactly one replica") {
 		t.Fatalf("expected single-instance compatibility error, got %v", err)
+	}
+}
+
+func TestValidateRejectsMultipleReplicasForNonSharedAuthority(t *testing.T) {
+	recipe := DefaultRecipe()
+	recipe.Deployment.Replicas = 2
+	if err := Validate(recipe); err == nil || !strings.Contains(err.Error(), "sqlite authority requires exactly one replica") {
+		t.Fatalf("expected non-shared authority error, got %v", err)
 	}
 }
 
@@ -49,6 +58,8 @@ func TestGenerateComposesDirectoryAndArchive(t *testing.T) {
 	assertFileContains(t, filepath.Join(destination, "src/store/sqlite.ts"), "class SqliteAuthority")
 	assertFileMissing(t, filepath.Join(destination, "src/store/postgres.ts"))
 	assertFileContains(t, filepath.Join(destination, "deploy/docker/compose.yaml"), "reaper-data")
+	assertFileContains(t, filepath.Join(destination, "REAPER.lock.yaml"), "originRecipeDigest: sha256:")
+	assertFileContains(t, filepath.Join(destination, "REAPER.lock.yaml"), "deliveryPack: both/v1")
 	assertFileContains(t, filepath.Join(destination, ".agents/skills/onboard-domain/SKILL.md"), "Onboard a customer domain")
 	assertFileContains(t, filepath.Join(destination, ".claude/skills/swap-database/SKILL.md"), "Swap the database authority")
 	assertPairedGuides(t, destination)
@@ -75,6 +86,44 @@ func TestGenerateZipOnlyLeavesNoDirectory(t *testing.T) {
 		t.Fatalf("zip-only generation left directory: %v", err)
 	}
 	assertArchiveEntry(t, result.Archive, recipe.Name+"/reaper_flags/__main__.py")
+}
+
+func TestConcurrentGenerationDoesNotDeleteWinningArtifacts(t *testing.T) {
+	const rounds = 12
+	for round := range rounds {
+		goRecipe := DefaultRecipe()
+		goRecipe.Name = fmt.Sprintf("concurrent-go-%d", round)
+		typeScriptRecipe := DefaultRecipe()
+		typeScriptRecipe.Name = fmt.Sprintf("concurrent-typescript-%d", round)
+		typeScriptRecipe.Service.Language = "typescript"
+		destination := filepath.Join(t.TempDir(), fmt.Sprintf("winner-%d", round))
+		start := make(chan struct{})
+		results := make(chan error, 2)
+		for _, recipe := range []Recipe{goRecipe, typeScriptRecipe} {
+			go func(selected Recipe) {
+				<-start
+				_, err := Generate(selected, destination)
+				results <- err
+			}(recipe)
+		}
+		close(start)
+		successes := 0
+		for range 2 {
+			if err := <-results; err == nil {
+				successes++
+			}
+		}
+		if successes != 1 {
+			t.Fatalf("round %d completed %d generations, want exactly one", round, successes)
+		}
+		assertPathExists(t, destination)
+		assertPathExists(t, destination+".zip")
+		generated, err := ReadRecipe(filepath.Join(destination, "REAPER.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertArchiveEntry(t, destination+".zip", generated.Name+"/REAPER.yaml")
+	}
 }
 
 func TestGenerationIsDeterministic(t *testing.T) {
@@ -201,12 +250,17 @@ func testCatalogCombination(t *testing.T, root, language, database, deployment s
 	recipe.Database.Authority = database
 	recipe.Deployment.Target = deployment
 	recipe.Delivery.Format = "directory"
-	if database == "sqlite" && requiresExternalDatabase(deployment) {
+	selected, exists := findDeployment(deployment)
+	if !exists {
+		t.Fatalf("catalog deployment is not registered: %s", deployment)
+	}
+	if !selected.supportsDatabase(database) {
 		if err := Validate(recipe); err == nil {
 			t.Fatalf("unsafe combination accepted: %s", recipe.Name)
 		}
 		return
 	}
+	recipe.Deployment.Replicas = selected.replicas.Default
 	result, err := Generate(recipe, filepath.Join(root, recipe.Name))
 	if err != nil {
 		t.Fatalf("generate %s: %v", recipe.Name, err)

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+.venv/bin/ruff format --check reaper_flags tests
+.venv/bin/ruff check reaper_flags tests
+.venv/bin/mypy reaper_flags tests
+.venv/bin/python -m unittest discover -s tests -v

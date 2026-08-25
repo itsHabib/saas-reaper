@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-import re
 from typing import Any
 
 FlagValue = bool | str
@@ -35,7 +35,11 @@ class Flag:
     updated_at: str = "1970-01-01T00:00:00+00:00"
 
 
-APPROVED_ATTRIBUTES = frozenset(({{range .Recipe.Domain.TargetingAttributes}}"{{.}}", {{end}}))
+APPROVED_ATTRIBUTES = frozenset(
+    (
+{{range .Recipe.Domain.TargetingAttributes}}        "{{.}}",
+{{end}}    )
+)
 
 
 def validate_flag(candidate: object, key: str) -> Flag:
@@ -91,9 +95,15 @@ def from_record(candidate: object) -> Flag:
         raise ValueError("stored rules must be an array")
     rules = tuple(
         Rule(
-            attribute=require_string(require_record(item, "stored rule").get("attribute"), "rule attribute"),
+            attribute=require_string(
+                require_record(item, "stored rule").get("attribute"),
+                "rule attribute",
+            ),
             equals=require_string(require_record(item, "stored rule").get("equals"), "rule equals"),
-            variant=require_string(require_record(item, "stored rule").get("variant"), "rule variant"),
+            variant=require_string(
+                require_record(item, "stored rule").get("variant"),
+                "rule variant",
+            ),
         )
         for item in rules_value
     )
@@ -139,7 +149,7 @@ def require_kind(candidate: object) -> str:
 
 
 def require_flag_value(candidate: object) -> FlagValue:
-    if isinstance(candidate, bool) or isinstance(candidate, str):
+    if isinstance(candidate, bool | str):
         return candidate
     raise ValueError("variant must contain a boolean or string")
 
@@ -168,11 +178,13 @@ def require_rules(candidate: object, variants: dict[str, FlagValue]) -> tuple[Ru
         variant = require_string(record.get("variant"), f"rule {index} variant")
         if variant not in variants:
             raise ValueError(f"rule variant {variant} is not defined")
-        rules.append(Rule(
-            attribute=attribute,
-            equals=require_string(record.get("equals"), f"rule {index} equals"),
-            variant=variant,
-        ))
+        rules.append(
+            Rule(
+                attribute=attribute,
+                equals=require_string(record.get("equals"), f"rule {index} equals"),
+                variant=variant,
+            )
+        )
     return tuple(rules)
 
 
