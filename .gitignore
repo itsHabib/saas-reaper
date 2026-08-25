@@ -1,0 +1,5 @@
+.DS_Store
+.reaper/
+examples/python/.venv/
+examples/python/__pycache__/
+examples/typescript/node_modules/

@@ -1,0 +1,54 @@
+schema: reaper.dev/v0alpha1
+capability: feature-flags
+artifact: golden-specimen
+
+runtime:
+  language: go
+  entrypoint: ./cmd/reaper-flags
+
+evaluation:
+  protocol: ofrep
+  protocolVersion: 0.3.0
+  topology: remote
+  flagKinds:
+    - boolean
+    - string
+  ruleOperators:
+    - equals
+  rollout:
+    algorithm: sha256-first-uint64-mod-10000
+    stableInput: flag-key-null-targeting-value
+
+persistence:
+  authority: sqlite
+  projection: memory
+  concurrency: optimistic-revision
+  audit: append-only
+
+domain:
+  environments:
+    addressing: base-url-prefix
+  targetingAttributes:
+    - targetingKey
+    - organization.id
+
+consumers:
+  - go
+  - typescript
+  - python
+
+management:
+  surface: http-json
+  authentication: bearer
+  identity: configured-principal
+
+excluded:
+  - admin-ui
+  - experimentation-analytics
+  - client-side-evaluation
+  - multi-instance-projection-sync
+  - approval-workflows
+  - identity-provider
+  - per-environment-token-scope
+  - tls-termination
+  - generator

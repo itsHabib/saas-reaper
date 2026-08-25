@@ -1,0 +1,2 @@
+openfeature-provider-ofrep==0.3.0
+openfeature-sdk==0.10.0

@@ -1,0 +1,82 @@
+diff --git a/internal/flags/context.go b/internal/flags/context.go
+--- a/internal/flags/context.go
++++ b/internal/flags/context.go
+@@ -4,5 +4,6 @@ import "fmt"
+ 
+ var allowedAttributes = map[string]struct{}{
+ 	"organization.id": {},
++	"organization.plan": {},
+ 	"targetingKey":    {},
+ }
+diff --git a/internal/flags/evaluate_test.go b/internal/flags/evaluate_test.go
+--- a/internal/flags/evaluate_test.go
++++ b/internal/flags/evaluate_test.go
+@@ -120,6 +120,24 @@ func TestEvaluateRequiresStringTargetingKey(t *testing.T) {
+ 	}
+ }
+ 
++func TestApprovedOrganizationPlanCanTarget(t *testing.T) {
++	flag := boolFlag()
++	flag.Rules = []Rule{{Attribute: "organization.plan", Equals: "enterprise", Variant: "on"}}
++	if err := flag.Validate(); err != nil {
++		t.Fatalf("validate organization plan rule: %v", err)
++	}
++	got, err := evaluate(flag, map[string]any{
++		"targetingKey":     "user-7",
++		"organization.plan": "enterprise",
++	})
++	if err != nil {
++		t.Fatalf("evaluate organization plan rule: %v", err)
++	}
++	if got.Variant != "on" || got.Reason != "TARGETING_MATCH" {
++		t.Fatalf("evaluation = %#v, want organization plan match", got)
++	}
++}
++
+ func boolFlag() Flag {
+ 	return Flag{
+ 		Key:            "checkout-v2",
+diff --git a/DOMAIN.md b/DOMAIN.md
+--- a/DOMAIN.md
++++ b/DOMAIN.md
+@@ -9,14 +9,16 @@ This specimen assumes a multi-tenant product whose customer boundary is an organ
+ | Environment | URL-safe string such as `production` | Separates independently published flag revisions. |
+ | Targeting subject | `targetingKey`, non-empty string | Stable subject for deterministic rollout assignment. |
+ | Organization | `organization.id`, string | Allows an organization-wide flag decision. |
++| Organization plan | `organization.plan`, string | Allows plan-specific product behavior after explicit domain approval. |
+ 
+ ## Targeting-data policy
+ 
+ - `targetingKey` is required for every OFREP evaluation. It is treated as a pseudonymous identifier; examples use synthetic values.
+ - `organization.id` may select product behavior for a tenant. It must be an opaque stable identifier, not a display name, email address, or secret.
++- `organization.plan` may select behavior by the tenant's current commercial plan. It contains commercial metadata, not payment credentials.
+ - Definitions may use only attributes explicitly allowed in `internal/flags/context.go`.
+ - Unknown request context is ignored by policy. It does not become an allowed targeting dimension by observation.
+-- No email address, IP address, geographic location, plan, health data, or other personal/sensitive attribute is approved in this specimen.
++- No email address, IP address, geographic location, payment credential, health data, or other personal/sensitive attribute is approved in this specimen.
+ 
+ ## Missing values
+ 
+diff --git a/REAPER.yaml b/REAPER.yaml
+--- a/REAPER.yaml
++++ b/REAPER.yaml
+@@ -31,6 +31,7 @@ domain:
+   targetingAttributes:
+     - targetingKey
+     - organization.id
++    - organization.plan
+ 
+ consumers:
+   - go
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -51,7 +51,7 @@ The standard provider appends `/ofrep/v1/evaluate/flags/{key}`. Evaluation order
+ 3. The optional rollout hashes `flag-key + NUL + targeting-value` with SHA-256 and maps the first unsigned 64 bits into 10,000 buckets.
+ 4. A rollout miss returns the default variant.
+ 
+-The POC supports boolean and string flags, equality rules, `targetingKey`, and `organization.id`. The bounded surface and explicit exclusions are recorded in `REAPER.yaml`.
++The POC supports boolean and string flags, equality rules, `targetingKey`, `organization.id`, and `organization.plan`. The bounded surface and explicit exclusions are recorded in `REAPER.yaml`.
+ 
+ ## Management contract
+ 

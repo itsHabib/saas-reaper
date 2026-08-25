@@ -1,0 +1,24 @@
+{
+  "expectedRevision": 0,
+  "flag": {
+    "kind": "boolean",
+    "enabled": true,
+    "defaultVariant": "off",
+    "variants": {
+      "off": false,
+      "on": true
+    },
+    "rules": [
+      {
+        "attribute": "organization.id",
+        "equals": "acme",
+        "variant": "on"
+      }
+    ],
+    "rollout": {
+      "attribute": "targetingKey",
+      "percentage": 30,
+      "variant": "on"
+    }
+  }
+}
