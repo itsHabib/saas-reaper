@@ -1,0 +1,14 @@
+---
+name: add-targeting-attribute
+description: Add one explicitly approved domain attribute to feature-flag targeting.
+---
+
+# Add a targeting attribute
+
+1. Record the customer concept, representation, missing-value behavior, and
+   privacy classification in `DOMAIN.md`.
+2. Add the attribute to the policy allowlist, not the HTTP layer.
+3. Add a positive evaluation test and a rejection test for an unknown attribute.
+4. Update `REAPER.yaml` and run `make check` plus `make demo`.
+
+Never infer approval from an attribute merely appearing in request context.

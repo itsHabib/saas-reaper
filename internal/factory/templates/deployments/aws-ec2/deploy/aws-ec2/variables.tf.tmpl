@@ -1,0 +1,41 @@
+variable "region" {
+  type = string
+}
+
+variable "subnet_id" {
+  type = string
+}
+
+variable "vpc_id" {
+  type = string
+}
+
+variable "instance_type" {
+  type    = string
+  default = "t3.small"
+}
+
+variable "container_image" {
+  type = string
+}
+
+variable "allowed_cidrs" {
+  type = list(string)
+}
+
+variable "admin_actor" {
+  type = string
+}
+
+variable "admin_token_secret_arn" {
+  type = string
+}
+
+variable "evaluation_token_secret_arn" {
+  type = string
+}
+{{if eq .Recipe.Database.Authority "postgres"}}
+variable "database_url_secret_arn" {
+  type = string
+}
+{{end}}

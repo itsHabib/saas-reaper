@@ -1,0 +1,13 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+{{if eq .Recipe.Database.Authority "postgres"}}COPY requirements.txt ./
+RUN python -m pip install --no-cache-dir -r requirements.txt
+{{end}}COPY reaper_flags ./reaper_flags
+RUN mkdir -p /data && chown 65532:65532 /data
+
+ENV PORT=8080 \
+    PYTHONDONTWRITEBYTECODE=1
+EXPOSE 8080
+USER 65532:65532
+CMD ["python", "-m", "reaper_flags"]

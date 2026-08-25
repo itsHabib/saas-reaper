@@ -1,0 +1,14 @@
+---
+name: swap-database
+description: Replace the durable flag authority without changing evaluation policy.
+---
+
+# Swap the database authority
+
+1. Preserve the store contract consumed by the composition root.
+2. Keep definition publication and its audit entry in one transaction.
+3. Prove creation, revision conflict, restart durability, and audit identity.
+4. Change only the composition root and deployment configuration to select it.
+5. Update `REAPER.yaml`, the runbook, and run `make check` plus `make demo`.
+
+Do not move validation, targeting, or rollout behavior into the database package.

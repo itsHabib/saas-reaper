@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_dir"
+
+{{if eq .Recipe.Service.Language "typescript"}}npm run check
+{{end}}{{if eq .Recipe.Service.Language "python"}}.venv/bin/python -m compileall -q reaper_flags tests
+.venv/bin/python -m unittest discover -s tests -v
+{{end}}
+banned='^(model|models|type|types|util|utils|helper|helpers|common|misc|service|manager)\.(ts|py)$'
+while IFS= read -r file; do
+  base=${file##*/}
+  if [[ "$base" =~ $banned ]]; then
+    echo "vague source filename: $file" >&2
+    exit 1
+  fi
+done < <(find . -type f \( -name '*.ts' -o -name '*.py' \) \
+  -not -path './node_modules/*' -not -path './.venv/*')
+
+if rg -n '\belse\b' -g '*.ts' -g '*.py' -g '!node_modules/**' -g '!.venv/**' .; then
+  echo "line-of-sight violation: use a guard clause" >&2
+  exit 1
+fi
+
+cmp -s AGENTS.md CLAUDE.md
+for skill in skills/*/SKILL.md; do
+  name=$(basename "$(dirname "$skill")")
+  cmp -s "$skill" ".agents/skills/$name/SKILL.md"
+  cmp -s "$skill" ".claude/skills/$name/SKILL.md"
+done
+echo "generated repository checks passed"

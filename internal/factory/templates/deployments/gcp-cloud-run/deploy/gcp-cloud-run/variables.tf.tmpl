@@ -1,0 +1,14 @@
+variable "project_id" { type = string }
+variable "region" { type = string }
+variable "container_image" {
+  type        = string
+  description = "Immutable Artifact Registry image reference."
+}
+variable "database_url_secret" { type = string }
+variable "admin_token_secret" { type = string }
+variable "evaluation_token_secret" { type = string }
+variable "admin_actor" { type = string }
+variable "invoker_members" {
+  type        = list(string)
+  description = "IAM members granted run.invoker; use explicit identities."
+}

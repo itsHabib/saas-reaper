@@ -1,0 +1,211 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+import re
+from typing import Any
+
+FlagValue = bool | str
+
+
+@dataclass(frozen=True)
+class Rule:
+    attribute: str
+    equals: str
+    variant: str
+
+
+@dataclass(frozen=True)
+class Rollout:
+    attribute: str
+    percentage: int
+    variant: str
+
+
+@dataclass(frozen=True)
+class Flag:
+    key: str
+    kind: str
+    enabled: bool
+    default_variant: str
+    variants: dict[str, FlagValue]
+    rules: tuple[Rule, ...] = field(default_factory=tuple)
+    rollout: Rollout | None = None
+    revision: int = 0
+    updated_at: str = "1970-01-01T00:00:00+00:00"
+
+
+APPROVED_ATTRIBUTES = frozenset(({{range .Recipe.Domain.TargetingAttributes}}"{{.}}", {{end}}))
+
+
+def validate_flag(candidate: object, key: str) -> Flag:
+    if re.fullmatch(r"[A-Za-z0-9._-]+", key) is None:
+        raise ValueError("flag key contains an unsupported character")
+    record = require_record(candidate, "flag")
+    kind = require_kind(record.get("kind"))
+    variants = require_variants(record.get("variants"), kind)
+    default_variant = require_string(record.get("defaultVariant"), "defaultVariant")
+    if default_variant not in variants:
+        raise ValueError(f"default variant {default_variant} is not defined")
+    rules = require_rules(record.get("rules", []), variants)
+    rollout = require_rollout(record.get("rollout"), variants)
+    enabled = record.get("enabled")
+    if not isinstance(enabled, bool):
+        raise ValueError("enabled must be a boolean")
+    return Flag(
+        key=key,
+        kind=kind,
+        enabled=enabled,
+        default_variant=default_variant,
+        variants=variants,
+        rules=rules,
+        rollout=rollout,
+    )
+
+
+def publish_revision(flag: Flag, revision: int) -> Flag:
+    return Flag(
+        key=flag.key,
+        kind=flag.kind,
+        enabled=flag.enabled,
+        default_variant=flag.default_variant,
+        variants=flag.variants.copy(),
+        rules=flag.rules,
+        rollout=flag.rollout,
+        revision=revision,
+        updated_at=datetime.now(UTC).isoformat(),
+    )
+
+
+def to_record(flag: Flag) -> dict[str, Any]:
+    record = asdict(flag)
+    record["defaultVariant"] = record.pop("default_variant")
+    record["updatedAt"] = record.pop("updated_at")
+    return record
+
+
+def from_record(candidate: object) -> Flag:
+    record = require_record(candidate, "stored flag")
+    rules_value = record.get("rules", [])
+    if not isinstance(rules_value, list):
+        raise ValueError("stored rules must be an array")
+    rules = tuple(
+        Rule(
+            attribute=require_string(require_record(item, "stored rule").get("attribute"), "rule attribute"),
+            equals=require_string(require_record(item, "stored rule").get("equals"), "rule equals"),
+            variant=require_string(require_record(item, "stored rule").get("variant"), "rule variant"),
+        )
+        for item in rules_value
+    )
+    rollout_value = record.get("rollout")
+    rollout = stored_rollout(rollout_value)
+    variants_value = require_record(record.get("variants"), "stored variants")
+    variants = {name: require_flag_value(value) for name, value in variants_value.items()}
+    return Flag(
+        key=require_string(record.get("key"), "key"),
+        kind=require_kind(record.get("kind")),
+        enabled=bool(record.get("enabled")),
+        default_variant=require_string(record.get("defaultVariant"), "defaultVariant"),
+        variants=variants,
+        rules=rules,
+        rollout=rollout,
+        revision=require_integer(record.get("revision"), "revision"),
+        updated_at=require_string(record.get("updatedAt"), "updatedAt"),
+    )
+
+
+def require_record(candidate: object, name: str) -> dict[str, Any]:
+    if not isinstance(candidate, dict):
+        raise ValueError(f"{name} must be an object")
+    return candidate
+
+
+def require_string(candidate: object, name: str) -> str:
+    if not isinstance(candidate, str) or not candidate:
+        raise ValueError(f"{name} must be a non-empty string")
+    return candidate
+
+
+def require_integer(candidate: object, name: str) -> int:
+    if not isinstance(candidate, int) or isinstance(candidate, bool):
+        raise ValueError(f"{name} must be a whole number")
+    return candidate
+
+
+def require_kind(candidate: object) -> str:
+    if candidate not in ("boolean", "string"):
+        raise ValueError("kind must be boolean or string")
+    return str(candidate)
+
+
+def require_flag_value(candidate: object) -> FlagValue:
+    if isinstance(candidate, bool) or isinstance(candidate, str):
+        return candidate
+    raise ValueError("variant must contain a boolean or string")
+
+
+def require_variants(candidate: object, kind: str) -> dict[str, FlagValue]:
+    record = require_record(candidate, "variants")
+    if not record:
+        raise ValueError("at least one variant is required")
+    variants: dict[str, FlagValue] = {}
+    for name, value in record.items():
+        if kind == "boolean" and not isinstance(value, bool):
+            raise ValueError(f"variant {name} must contain a boolean")
+        if kind == "string" and not isinstance(value, str):
+            raise ValueError(f"variant {name} must contain a string")
+        variants[name] = require_flag_value(value)
+    return variants
+
+
+def require_rules(candidate: object, variants: dict[str, FlagValue]) -> tuple[Rule, ...]:
+    if not isinstance(candidate, list):
+        raise ValueError("rules must be an array")
+    rules: list[Rule] = []
+    for index, item in enumerate(candidate):
+        record = require_record(item, f"rule {index}")
+        attribute = require_attribute(record.get("attribute"))
+        variant = require_string(record.get("variant"), f"rule {index} variant")
+        if variant not in variants:
+            raise ValueError(f"rule variant {variant} is not defined")
+        rules.append(Rule(
+            attribute=attribute,
+            equals=require_string(record.get("equals"), f"rule {index} equals"),
+            variant=variant,
+        ))
+    return tuple(rules)
+
+
+def require_rollout(candidate: object, variants: dict[str, FlagValue]) -> Rollout | None:
+    if candidate is None:
+        return None
+    record = require_record(candidate, "rollout")
+    percentage = require_integer(record.get("percentage"), "rollout percentage")
+    if percentage < 0 or percentage > 100:
+        raise ValueError("rollout percentage must be from 0 to 100")
+    variant = require_string(record.get("variant"), "rollout variant")
+    if variant not in variants:
+        raise ValueError(f"rollout variant {variant} is not defined")
+    return Rollout(
+        attribute=require_attribute(record.get("attribute")),
+        percentage=percentage,
+        variant=variant,
+    )
+
+
+def require_attribute(candidate: object) -> str:
+    attribute = require_string(candidate, "targeting attribute")
+    if attribute not in APPROVED_ATTRIBUTES:
+        raise ValueError(f"targeting attribute {attribute} is not approved by DOMAIN.md")
+    return attribute
+
+
+def stored_rollout(candidate: object) -> Rollout | None:
+    if candidate is None:
+        return None
+    record = require_record(candidate, "stored rollout")
+    return Rollout(
+        attribute=require_string(record.get("attribute"), "rollout attribute"),
+        percentage=require_integer(record.get("percentage"), "rollout percentage"),
+        variant=require_string(record.get("variant"), "rollout variant"),
+    )

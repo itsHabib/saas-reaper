@@ -1,0 +1,147 @@
+export type FlagValue = boolean | string;
+
+export interface Rule {
+  attribute: string;
+  equals: string;
+  variant: string;
+}
+
+export interface Rollout {
+  attribute: string;
+  percentage: number;
+  variant: string;
+}
+
+export interface Flag {
+  key: string;
+  kind: "boolean" | "string";
+  enabled: boolean;
+  defaultVariant: string;
+  variants: Record<string, FlagValue>;
+  rules: Rule[];
+  rollout?: Rollout;
+  revision: number;
+  updatedAt: string;
+}
+
+const approvedAttributes = new Set<string>([{{.Attributes}}]);
+
+export function validateFlag(input: unknown, key: string): Flag {
+  if (!/^[A-Za-z0-9._-]+$/.test(key)) {
+    throw new Error("flag key contains an unsupported character");
+  }
+  const record = requireRecord(input, "flag");
+  const kind = requireKind(record.kind);
+  const variants = requireVariants(record.variants, kind);
+  const defaultVariant = requireString(record.defaultVariant, "defaultVariant");
+  if (!(defaultVariant in variants)) {
+    throw new Error(`default variant ${defaultVariant} is not defined`);
+  }
+  const rules = requireRules(record.rules ?? [], variants);
+  const rollout = requireRollout(record.rollout, variants);
+  const flag: Flag = {
+    key,
+    kind,
+    enabled: requireBoolean(record.enabled, "enabled"),
+    defaultVariant,
+    variants,
+    rules,
+    revision: 0,
+    updatedAt: new Date(0).toISOString(),
+  };
+  if (!rollout) {
+    return flag;
+  }
+  flag.rollout = rollout;
+  return flag;
+}
+
+function requireRecord(value: unknown, name: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${name} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireString(value: unknown, name: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${name} must be a non-empty string`);
+  }
+  return value;
+}
+
+function requireBoolean(value: unknown, name: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`${name} must be a boolean`);
+  }
+  return value;
+}
+
+function requireKind(value: unknown): "boolean" | "string" {
+  if (value !== "boolean" && value !== "string") {
+    throw new Error("kind must be boolean or string");
+  }
+  return value;
+}
+
+function requireVariants(value: unknown, kind: "boolean" | "string"): Record<string, FlagValue> {
+  const record = requireRecord(value, "variants");
+  if (Object.keys(record).length === 0) {
+    throw new Error("at least one variant is required");
+  }
+  const variants: Record<string, FlagValue> = {};
+  for (const [name, candidate] of Object.entries(record)) {
+    if (typeof candidate !== kind) {
+      throw new Error(`variant ${name} must contain a ${kind}`);
+    }
+    variants[name] = candidate as FlagValue;
+  }
+  return variants;
+}
+
+function requireRules(value: unknown, variants: Record<string, FlagValue>): Rule[] {
+  if (!Array.isArray(value)) {
+    throw new Error("rules must be an array");
+  }
+  return value.map((candidate, index) => {
+    const record = requireRecord(candidate, `rule ${index}`);
+    const attribute = requireApprovedAttribute(record.attribute);
+    const variant = requireString(record.variant, `rule ${index} variant`);
+    if (!(variant in variants)) {
+      throw new Error(`rule variant ${variant} is not defined`);
+    }
+    return {
+      attribute,
+      equals: requireString(record.equals, `rule ${index} equals`),
+      variant,
+    };
+  });
+}
+
+function requireRollout(value: unknown, variants: Record<string, FlagValue>): Rollout | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const record = requireRecord(value, "rollout");
+  const percentage = record.percentage;
+  if (!Number.isInteger(percentage) || Number(percentage) < 0 || Number(percentage) > 100) {
+    throw new Error("rollout percentage must be a whole number from 0 to 100");
+  }
+  const variant = requireString(record.variant, "rollout variant");
+  if (!(variant in variants)) {
+    throw new Error(`rollout variant ${variant} is not defined`);
+  }
+  return {
+    attribute: requireApprovedAttribute(record.attribute),
+    percentage: Number(percentage),
+    variant,
+  };
+}
+
+function requireApprovedAttribute(value: unknown): string {
+  const attribute = requireString(value, "targeting attribute");
+  if (!approvedAttributes.has(attribute)) {
+    throw new Error(`targeting attribute ${attribute} is not approved by DOMAIN.md`);
+  }
+  return attribute;
+}

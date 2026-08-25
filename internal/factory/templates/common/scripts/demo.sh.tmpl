@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_dir"
+
+port=${REAPER_DEMO_PORT:-18081}
+work_dir=$(mktemp -d)
+pid=""
+cleanup() {
+  if [[ -n "$pid" ]]; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  fi
+  rm -rf "$work_dir"
+}
+trap cleanup EXIT
+
+export PORT="$port"
+export REAPER_ADMIN_TOKEN=demo-admin
+export REAPER_ADMIN_ACTOR=demo-operator
+export REAPER_EVALUATION_TOKEN=demo-evaluation
+{{if eq .Recipe.Database.Authority "sqlite"}}export DATABASE_PATH="$work_dir/reaper.db"
+{{end}}{{if eq .Recipe.Database.Authority "postgres"}}: "${DATABASE_URL:?set DATABASE_URL to a disposable PostgreSQL database}"
+{{end}}
+{{if eq .Recipe.Service.Language "typescript"}}npm start >"$work_dir/server.log" 2>&1 &
+{{end}}{{if eq .Recipe.Service.Language "python"}}.venv/bin/python -m reaper_flags >"$work_dir/server.log" 2>&1 &
+{{end}}pid=$!
+
+for _ in $(seq 1 80); do
+  if curl --silent --fail "http://127.0.0.1:$port/healthz" >/dev/null; then
+    break
+  fi
+  sleep 0.1
+done
+curl --silent --fail "http://127.0.0.1:$port/healthz" >/dev/null
+
+curl --silent --fail --request PUT \
+  --header 'Authorization: Bearer demo-admin' \
+  --header 'Content-Type: application/json' \
+  --data '{"expectedRevision":0,"flag":{"kind":"boolean","enabled":true,"defaultVariant":"off","variants":{"off":false,"on":true},"rules":[{"attribute":"organization.id","equals":"acme","variant":"on"}]}}' \
+  "http://127.0.0.1:$port/v1/environments/production/flags/checkout-v2" >/dev/null
+
+result=$(curl --silent --fail --request POST \
+  --header 'Authorization: Bearer demo-evaluation' \
+  --header 'Content-Type: application/json' \
+  --data '{"context":{"targetingKey":"demo-user","organization":{"id":"acme"}}}' \
+  "http://127.0.0.1:$port/environments/production/ofrep/v1/evaluate/flags/checkout-v2")
+
+printf '%s' "$result" | jq -e '.value == true and .variant == "on" and .reason == "TARGETING_MATCH"' >/dev/null
+echo "generated {{.Recipe.Service.Language}}/{{.Recipe.Database.Authority}} service demo passed"

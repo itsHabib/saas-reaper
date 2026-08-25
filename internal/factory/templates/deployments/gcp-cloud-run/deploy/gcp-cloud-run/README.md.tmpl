@@ -1,0 +1,9 @@
+# GCP Cloud Run deployment
+
+This Terraform root creates a dedicated service account, scoped Secret Manager
+access, a Cloud Run v2 service, and explicit invoker bindings. Supply an immutable
+Artifact Registry image and existing secrets.
+
+The PostgreSQL authority is external. Put its Cloud SQL or other PostgreSQL URL
+in the database secret. Review `terraform plan` before applying; generation does
+not provision or mutate a GCP project.

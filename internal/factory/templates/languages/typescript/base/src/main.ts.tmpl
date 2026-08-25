@@ -1,0 +1,37 @@
+import { createServer } from "node:http";
+
+import { routes } from "./api/routes.ts";
+import { {{if eq .Recipe.Database.Authority "sqlite"}}SqliteAuthority{{end}}{{if eq .Recipe.Database.Authority "postgres"}}PostgresAuthority{{end}} } from "./store/{{.Recipe.Database.Authority}}.ts";
+
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} is required`);
+  }
+  return value;
+}
+
+const authority = new {{if eq .Recipe.Database.Authority "sqlite"}}SqliteAuthority(process.env.DATABASE_PATH ?? "reaper.db"){{end}}{{if eq .Recipe.Database.Authority "postgres"}}PostgresAuthority(required("DATABASE_URL")){{end}};
+await authority.initialize();
+
+const adminToken = required("REAPER_ADMIN_TOKEN");
+const evaluationToken = required("REAPER_EVALUATION_TOKEN");
+if (adminToken === evaluationToken) {
+  throw new Error("management and evaluation tokens must differ");
+}
+const handler = routes(authority, {
+  adminToken,
+  adminActor: required("REAPER_ADMIN_ACTOR"),
+  evaluationToken,
+});
+const port = Number(process.env.PORT ?? "8080");
+const server = createServer((request, response) => void handler(request, response));
+server.listen(port, "0.0.0.0", () => console.log(`{{.Recipe.Name}} listening on ${port}`));
+
+async function shutdown(): Promise<void> {
+  server.close();
+  await authority.close();
+}
+
+process.on("SIGTERM", () => void shutdown());
+process.on("SIGINT", () => void shutdown());

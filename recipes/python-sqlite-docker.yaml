@@ -1,0 +1,17 @@
+schema: reaper.dev/v0alpha2
+name: billing-flags
+capability: feature-flags
+service:
+  language: python
+database:
+  authority: sqlite
+deployment:
+  target: docker
+  replicas: 1
+delivery:
+  format: directory
+domain:
+  tenant: account
+  targetingAttributes:
+    - targetingKey
+    - organization.id

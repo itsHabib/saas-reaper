@@ -1,0 +1,22 @@
+# Domain adaptation record
+
+This repository assumes a multi-tenant product whose customer boundary is a
+`{{.Recipe.Domain.Tenant}}`.
+
+## Approved targeting vocabulary
+
+{{range .Recipe.Domain.TargetingAttributes}}- `{{.}}`
+{{end}}
+`targetingKey` is required and should be pseudonymous. Add personal or sensitive
+attributes only after an explicit privacy decision, positive tests, and rejection
+tests. Definitions cannot depend on unknown request context.
+
+## Authority
+
+One configured management principal publishes definitions and becomes the audit
+actor. A separate evaluation credential can read decisions but cannot write.
+
+## Adaptation record
+
+Add a dated entry for every targeting-vocabulary change. Name the operator
+decision, behavior and test changes, and privacy consequence.

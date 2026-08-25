@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass
+from typing import Any
+
+from reaper_flags.flags.flag import Flag, FlagValue, Rollout, Rule
+
+
+@dataclass(frozen=True)
+class Evaluation:
+    key: str
+    value: FlagValue
+    reason: str
+    variant: str
+    revision: int
+
+
+def evaluate(flag: Flag, context: dict[str, Any]) -> Evaluation:
+    targeting_key = context.get("targetingKey")
+    if not isinstance(targeting_key, str) or not targeting_key:
+        raise ValueError("targetingKey must be a non-empty string")
+    if not flag.enabled:
+        return resolve(flag, flag.default_variant, "DISABLED")
+    for rule in flag.rules:
+        if not matches(rule, context):
+            continue
+        return resolve(flag, rule.variant, "TARGETING_MATCH")
+    if flag.rollout is None or not in_rollout(flag.key, flag.rollout, context):
+        return resolve(flag, flag.default_variant, "STATIC")
+    return resolve(flag, flag.rollout.variant, "SPLIT")
+
+
+def matches(rule: Rule, context: dict[str, Any]) -> bool:
+    return context_value(context, rule.attribute) == rule.equals
+
+
+def in_rollout(key: str, rollout: Rollout, context: dict[str, Any]) -> bool:
+    value = context_value(context, rollout.attribute)
+    if not isinstance(value, str):
+        return False
+    digest = hashlib.sha256(f"{key}\0{value}".encode()).digest()
+    bucket = int.from_bytes(digest[:8], "big") % 10_000
+    return bucket < rollout.percentage * 100
+
+
+def context_value(context: dict[str, Any], attribute: str) -> object:
+    current: object = context
+    for segment in attribute.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(segment)
+    return current
+
+
+def resolve(flag: Flag, variant: str, reason: str) -> Evaluation:
+    value = flag.variants.get(variant)
+    if value is None:
+        raise ValueError(f"variant {variant} is not defined")
+    return Evaluation(
+        key=flag.key,
+        value=value,
+        reason=reason,
+        variant=variant,
+        revision=flag.revision,
+    )

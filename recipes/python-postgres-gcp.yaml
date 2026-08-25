@@ -1,0 +1,17 @@
+schema: reaper.dev/v0alpha2
+name: workspace-flags
+capability: feature-flags
+service:
+  language: python
+database:
+  authority: postgres
+deployment:
+  target: gcp-cloud-run
+  replicas: 4
+delivery:
+  format: directory
+domain:
+  tenant: workspace
+  targetingAttributes:
+    - targetingKey
+    - workspace.id

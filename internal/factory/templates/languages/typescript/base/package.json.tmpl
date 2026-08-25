@@ -1,0 +1,21 @@
+{
+  "name": "{{.Recipe.Name}}",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "tsc --noEmit && node --test src/**/*.test.ts",
+    "start": "node src/main.ts"
+  },
+  "dependencies": { {{if eq .Recipe.Database.Authority "postgres"}}
+    "pg": "8.16.3"{{end}}
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",{{if eq .Recipe.Database.Authority "postgres"}}
+    "@types/pg": "8.15.5",{{end}}
+    "typescript": "5.9.2"
+  }
+}

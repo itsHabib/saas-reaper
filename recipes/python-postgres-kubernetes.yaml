@@ -1,0 +1,18 @@
+schema: reaper.dev/v0alpha2
+name: account-flags
+capability: feature-flags
+service:
+  language: python
+database:
+  authority: postgres
+deployment:
+  target: kubernetes
+  replicas: 3
+delivery:
+  format: both
+domain:
+  tenant: account
+  targetingAttributes:
+    - targetingKey
+    - account.id
+    - account.plan

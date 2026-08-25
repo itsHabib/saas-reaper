@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+import unittest
+
+from reaper_flags.flags.evaluate import evaluate
+from reaper_flags.flags.flag import Flag, Rule, validate_flag
+
+
+class EvaluateTest(unittest.TestCase):
+    def test_first_matching_domain_rule_wins(self) -> None:
+        flag = Flag(
+            key="checkout-v2",
+            kind="boolean",
+            enabled=True,
+            default_variant="off",
+            variants={"off": False, "on": True},
+            rules=(Rule(attribute="organization.id", equals="acme", variant="on"),),
+            revision=3,
+        )
+        decision = evaluate(flag, {
+            "targetingKey": "user-1",
+            "organization": {"id": "acme"},
+        })
+        self.assertEqual(decision.value, True)
+        self.assertEqual(decision.reason, "TARGETING_MATCH")
+
+    def test_missing_targeting_key_is_rejected(self) -> None:
+        flag = Flag(
+            key="checkout-v2",
+            kind="boolean",
+            enabled=True,
+            default_variant="off",
+            variants={"off": False},
+        )
+        with self.assertRaisesRegex(ValueError, "targetingKey"):
+            evaluate(flag, {})
+
+    def test_unknown_domain_attributes_and_unsafe_keys_are_rejected(self) -> None:
+        definition = {
+            "kind": "boolean",
+            "enabled": True,
+            "defaultVariant": "off",
+            "variants": {"off": False, "on": True},
+            "rules": [{
+                "attribute": "user.email",
+                "equals": "private@example.test",
+                "variant": "on",
+            }],
+        }
+        with self.assertRaisesRegex(ValueError, "not approved"):
+            validate_flag(definition, "checkout-v2")
+        definition["rules"] = []
+        with self.assertRaisesRegex(ValueError, "unsupported character"):
+            validate_flag(definition, "../checkout")
+
+
+if __name__ == "__main__":
+    unittest.main()

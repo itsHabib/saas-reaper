@@ -1,0 +1,17 @@
+schema: reaper.dev/v0alpha2
+name: commerce-flags
+capability: feature-flags
+service:
+  language: typescript
+database:
+  authority: postgres
+deployment:
+  target: aws-ecs
+  replicas: 2
+delivery:
+  format: directory
+domain:
+  tenant: merchant
+  targetingAttributes:
+    - targetingKey
+    - merchant.id

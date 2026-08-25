@@ -1,0 +1,89 @@
+import { DatabaseSync } from "node:sqlite";
+
+import type { Flag } from "../flags/flag.ts";
+import { RevisionConflict, type FlagAuthority } from "./contract.ts";
+
+interface StoredFlag {
+  definition: string;
+  revision: number;
+}
+
+export class SqliteAuthority implements FlagAuthority {
+  readonly #database: DatabaseSync;
+
+  constructor(path: string) {
+    this.#database = new DatabaseSync(path);
+  }
+
+  async initialize(): Promise<void> {
+    this.#database.exec(`
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE IF NOT EXISTS flags (
+        environment TEXT NOT NULL,
+        key TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        definition TEXT NOT NULL,
+        PRIMARY KEY (environment, key)
+      );
+      CREATE TABLE IF NOT EXISTS audit (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        environment TEXT NOT NULL,
+        key TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        actor TEXT NOT NULL,
+        occurred_at TEXT NOT NULL
+      );
+    `);
+  }
+
+  async load(environment: string, key: string): Promise<Flag | undefined> {
+    const row = this.#database
+      .prepare("SELECT definition, revision FROM flags WHERE environment = ? AND key = ?")
+      .get(environment, key) as unknown as StoredFlag | undefined;
+    if (!row) {
+      return undefined;
+    }
+    return JSON.parse(row.definition) as Flag;
+  }
+
+  async publish(environment: string, flag: Flag, expectedRevision: number, actor: string): Promise<Flag> {
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.#database
+        .prepare("SELECT definition, revision FROM flags WHERE environment = ? AND key = ?")
+        .get(environment, flag.key) as unknown as StoredFlag | undefined;
+      requireRevision(current?.revision, expectedRevision);
+      const published = { ...flag, revision: expectedRevision + 1, updatedAt: new Date().toISOString() };
+      this.#database.prepare(`
+        INSERT INTO flags (environment, key, revision, definition)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(environment, key) DO UPDATE SET
+          revision = excluded.revision,
+          definition = excluded.definition
+      `).run(environment, flag.key, published.revision, JSON.stringify(published));
+      this.#database.prepare(`
+        INSERT INTO audit (environment, key, revision, actor, occurred_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(environment, flag.key, published.revision, actor, published.updatedAt);
+      this.#database.exec("COMMIT");
+      return published;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async close(): Promise<void> {
+    this.#database.close();
+  }
+}
+
+function requireRevision(current: number | undefined, expected: number): void {
+  if (current === undefined && expected === 0) {
+    return;
+  }
+  if (current === expected) {
+    return;
+  }
+  throw new RevisionConflict(`expected revision ${expected}, current revision ${current ?? 0}`);
+}

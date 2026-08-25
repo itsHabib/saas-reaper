@@ -1,6 +1,29 @@
 schema: reaper.dev/v0alpha1
 capability: feature-flags
-artifact: golden-specimen
+artifact: factory-and-golden-specimen
+
+factory:
+  languages:
+    - typescript
+    - python
+  databases:
+    - sqlite
+    - postgres
+  deployments:
+    - docker
+    - aws-ecs
+    - aws-ec2
+    - gcp-cloud-run
+    - kubernetes
+  deliveries:
+    - directory
+    - zip
+    - both
+  generatedKnowledge:
+    - agents
+    - claude
+    - domain
+    - skills
 
 runtime:
   language: go
@@ -51,4 +74,3 @@ excluded:
   - identity-provider
   - per-environment-token-scope
   - tls-termination
-  - generator

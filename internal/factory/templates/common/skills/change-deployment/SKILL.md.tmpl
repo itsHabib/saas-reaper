@@ -1,0 +1,16 @@
+---
+name: change-deployment
+description: Modify the selected deployment while preserving application and authority boundaries.
+---
+
+# Change deployment
+
+1. Read `REAPER.yaml`, `deploy/{{.Recipe.Deployment.Target}}/README.md`, and the
+   container contract in the root `Dockerfile`.
+2. Preserve port `8080`, `/healthz`, non-root execution, secret injection, and
+   the separate management/evaluation credentials.
+3. Keep SQLite single-instance. Require PostgreSQL before adding replicas or an
+   ephemeral/multi-host compute target.
+4. Preview infrastructure changes using the target's native diff or plan command.
+5. Never apply infrastructure without explicit operator authority.
+6. Update the runbook and run `make check` plus the local demo.

@@ -1,0 +1,96 @@
+from __future__ import annotations
+
+import json
+
+import psycopg
+from psycopg.rows import dict_row
+
+from reaper_flags.flags.flag import Flag, from_record, publish_revision, to_record
+from reaper_flags.store.contract import RevisionConflict
+
+
+class PostgresAuthority:
+    def __init__(self, connection_string: str) -> None:
+        self.connection_string = connection_string
+
+    def initialize(self) -> None:
+        with psycopg.connect(self.connection_string) as connection:
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS flags (
+                    environment TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    revision BIGINT NOT NULL,
+                    definition JSONB NOT NULL,
+                    PRIMARY KEY (environment, key)
+                );
+                CREATE TABLE IF NOT EXISTS audit (
+                    sequence BIGSERIAL PRIMARY KEY,
+                    environment TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    revision BIGINT NOT NULL,
+                    actor TEXT NOT NULL,
+                    occurred_at TIMESTAMPTZ NOT NULL
+                );
+            """)
+
+    def load(self, environment: str, key: str) -> Flag | None:
+        with psycopg.connect(self.connection_string, row_factory=dict_row) as connection:
+            row = connection.execute(
+                "SELECT definition FROM flags WHERE environment = %s AND key = %s",
+                (environment, key),
+            ).fetchone()
+            if row is None:
+                return None
+            return from_record(row["definition"])
+
+    def publish(
+        self,
+        environment: str,
+        flag: Flag,
+        expected_revision: int,
+        actor: str,
+    ) -> Flag:
+        try:
+            with psycopg.connect(self.connection_string, row_factory=dict_row) as connection:
+                row = connection.execute(
+                    "SELECT revision FROM flags WHERE environment = %s AND key = %s FOR UPDATE",
+                    (environment, flag.key),
+                ).fetchone()
+                current = 0
+                if row is not None:
+                    current = int(row["revision"])
+                if current != expected_revision:
+                    raise RevisionConflict(
+                        f"expected revision {expected_revision}, current revision {current}"
+                    )
+                published = publish_revision(flag, expected_revision + 1)
+                connection.execute("""
+                    INSERT INTO flags (environment, key, revision, definition)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT(environment, key) DO UPDATE SET
+                        revision = EXCLUDED.revision,
+                        definition = EXCLUDED.definition
+                """, (
+                    environment,
+                    flag.key,
+                    published.revision,
+                    json.dumps(to_record(published)),
+                ))
+                connection.execute("""
+                    INSERT INTO audit (environment, key, revision, actor, occurred_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (
+                    environment,
+                    flag.key,
+                    published.revision,
+                    actor,
+                    published.updated_at,
+                ))
+                return published
+        except psycopg.errors.UniqueViolation as error:
+            raise RevisionConflict(
+                f"expected revision {expected_revision}, flag was created concurrently"
+            ) from error
+
+    def close(self) -> None:
+        return

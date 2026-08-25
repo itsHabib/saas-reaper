@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{.Recipe.Name}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{.Recipe.Name}}
+data:
+  admin-actor: reaper-operator

@@ -1,0 +1,12 @@
+# AWS ECS/Fargate deployment
+
+This Terraform root creates the ECS cluster, task and execution roles, scoped
+secret access, Fargate task/service, CloudWatch logs, security groups, and an
+HTTPS Application Load Balancer. Supply an immutable container image, existing
+VPC/subnets, ACM certificate, and three Secrets Manager ARNs.
+
+The PostgreSQL authority is external. Put its URL in the supplied database
+secret; an RDS instance is not silently provisioned into an unknown network.
+
+Review, then run `terraform init`, `terraform plan`, and `terraform apply` from
+this directory. Generation itself never applies infrastructure.

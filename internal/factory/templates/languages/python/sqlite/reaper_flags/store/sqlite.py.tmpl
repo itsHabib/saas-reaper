@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+import threading
+from pathlib import Path
+
+from reaper_flags.flags.flag import Flag, from_record, publish_revision, to_record
+from reaper_flags.store.contract import RevisionConflict
+
+
+class SqliteAuthority:
+    def __init__(self, path: str) -> None:
+        self.connection = sqlite3.connect(Path(path), check_same_thread=False)
+        self.connection.row_factory = sqlite3.Row
+        self.lock = threading.Lock()
+
+    def initialize(self) -> None:
+        self.connection.executescript("""
+            PRAGMA journal_mode = WAL;
+            CREATE TABLE IF NOT EXISTS flags (
+                environment TEXT NOT NULL,
+                key TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                definition TEXT NOT NULL,
+                PRIMARY KEY (environment, key)
+            );
+            CREATE TABLE IF NOT EXISTS audit (
+                sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                environment TEXT NOT NULL,
+                key TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                actor TEXT NOT NULL,
+                occurred_at TEXT NOT NULL
+            );
+        """)
+
+    def load(self, environment: str, key: str) -> Flag | None:
+        with self.lock:
+            row = self.connection.execute(
+                "SELECT definition FROM flags WHERE environment = ? AND key = ?",
+                (environment, key),
+            ).fetchone()
+        if row is None:
+            return None
+        return from_record(json.loads(str(row["definition"])))
+
+    def publish(
+        self,
+        environment: str,
+        flag: Flag,
+        expected_revision: int,
+        actor: str,
+    ) -> Flag:
+        with self.lock:
+            with self.connection:
+                row = self.connection.execute(
+                    "SELECT revision FROM flags WHERE environment = ? AND key = ?",
+                    (environment, flag.key),
+                ).fetchone()
+                current = 0
+                if row is not None:
+                    current = int(row["revision"])
+                if current != expected_revision:
+                    raise RevisionConflict(
+                        f"expected revision {expected_revision}, current revision {current}"
+                    )
+                published = publish_revision(flag, expected_revision + 1)
+                self.connection.execute("""
+                    INSERT INTO flags (environment, key, revision, definition)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(environment, key) DO UPDATE SET
+                        revision = excluded.revision,
+                        definition = excluded.definition
+                """, (environment, flag.key, published.revision, json.dumps(to_record(published))))
+                self.connection.execute("""
+                    INSERT INTO audit (environment, key, revision, actor, occurred_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (environment, flag.key, published.revision, actor, published.updated_at))
+        return published
+
+    def close(self) -> None:
+        self.connection.close()

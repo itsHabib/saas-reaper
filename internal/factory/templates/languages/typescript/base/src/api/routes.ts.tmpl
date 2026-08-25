@@ -1,0 +1,159 @@
+import { timingSafeEqual } from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
+
+import { evaluate } from "../flags/evaluate.ts";
+import { validateFlag } from "../flags/flag.ts";
+import { RevisionConflict, type FlagAuthority } from "../store/contract.ts";
+
+interface Configuration {
+  adminToken: string;
+  adminActor: string;
+  evaluationToken: string;
+}
+
+const managementPath = /^\/v1\/environments\/([^/]+)\/flags\/([^/]+)$/;
+const evaluationPath = /^\/environments\/([^/]+)\/ofrep\/v1\/evaluate\/flags\/([^/]+)$/;
+
+export function routes(authority: FlagAuthority, configuration: Configuration) {
+  return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    try {
+      if (request.method === "GET" && request.url === "/healthz") {
+        write(response, 200, { status: "ok" });
+        return;
+      }
+      const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+      const management = pathname.match(managementPath);
+      if (request.method === "PUT" && management) {
+        await publish(request, response, authority, configuration, management[1] ?? "", management[2] ?? "");
+        return;
+      }
+      const evaluation = pathname.match(evaluationPath);
+      if (request.method === "POST" && evaluation) {
+        await resolve(request, response, authority, configuration, evaluation[1] ?? "", evaluation[2] ?? "");
+        return;
+      }
+      write(response, 404, { error: "not found" });
+    } catch (error) {
+      write(response, 400, { error: errorMessage(error) });
+    }
+  };
+}
+
+async function publish(
+  request: IncomingMessage,
+  response: ServerResponse,
+  authority: FlagAuthority,
+  configuration: Configuration,
+  environment: string,
+  key: string,
+): Promise<void> {
+  if (!authorized(request, configuration.adminToken)) {
+    write(response, 401, { error: "unauthorized" });
+    return;
+  }
+  requirePathSegment(environment, "environment");
+  requirePathSegment(key, "flag key");
+  const body = requireRecord(await readJSON(request), "request");
+  if (!Number.isInteger(body.expectedRevision) || Number(body.expectedRevision) < 0) {
+    throw new Error("expectedRevision must be a non-negative whole number");
+  }
+  const flag = validateFlag(body.flag, key);
+  try {
+    const published = await authority.publish(
+      environment,
+      flag,
+      Number(body.expectedRevision),
+      configuration.adminActor,
+    );
+    write(response, 200, published);
+  } catch (error) {
+    if (error instanceof RevisionConflict) {
+      write(response, 409, { error: error.message });
+      return;
+    }
+    throw error;
+  }
+}
+
+async function resolve(
+  request: IncomingMessage,
+  response: ServerResponse,
+  authority: FlagAuthority,
+  configuration: Configuration,
+  environment: string,
+  key: string,
+): Promise<void> {
+  if (!authorized(request, configuration.evaluationToken)) {
+    write(response, 401, { error: "unauthorized" });
+    return;
+  }
+  requirePathSegment(environment, "environment");
+  requirePathSegment(key, "flag key");
+  const body = requireRecord(await readJSON(request), "request");
+  const context = requireRecord(body.context, "context");
+  const flag = await authority.load(environment, key);
+  if (!flag) {
+    write(response, 404, { error: "flag not found" });
+    return;
+  }
+  const decision = evaluate(flag, context);
+  write(response, 200, {
+    key: decision.key,
+    value: decision.value,
+    reason: decision.reason,
+    variant: decision.variant,
+    metadata: { revision: decision.revision },
+  });
+}
+
+function authorized(request: IncomingMessage, expected: string): boolean {
+  const header = request.headers.authorization ?? "";
+  if (!header.startsWith("Bearer ")) {
+    return false;
+  }
+  const provided = Buffer.from(header.slice("Bearer ".length));
+  const wanted = Buffer.from(expected);
+  if (provided.length !== wanted.length) {
+    return false;
+  }
+  return timingSafeEqual(provided, wanted);
+}
+
+async function readJSON(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const data = Buffer.from(chunk);
+    size += data.length;
+    if (size > 1_048_576) {
+      throw new Error("request exceeds one megabyte");
+    }
+    chunks.push(data);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+function requireRecord(value: unknown, name: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${name} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requirePathSegment(value: string, name: string): void {
+  if (!/^[A-Za-z0-9._-]+$/.test(value)) {
+    throw new Error(`${name} contains an unsupported character`);
+  }
+}
+
+function write(response: ServerResponse, status: number, body: unknown): void {
+  response.writeHead(status, { "content-type": "application/json" });
+  response.end(JSON.stringify(body));
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "unexpected error";
+}

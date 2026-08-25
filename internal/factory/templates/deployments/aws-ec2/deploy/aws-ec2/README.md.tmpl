@@ -1,0 +1,10 @@
+# AWS EC2 deployment
+
+This profile creates one encrypted Amazon Linux instance and runs the selected
+container under Docker restart policy. It is intentionally a single-node profile.
+The instance role can read only the supplied management, evaluation, and optional
+database Secrets Manager ARNs; values are fetched during boot into a root-readable
+environment file rather than embedded in Terraform state.
+
+Terminate TLS at an existing load balancer or reverse proxy; the generated
+instance exposes HTTP only to the explicit `allowed_cidrs`.

@@ -1,0 +1,63 @@
+import { createHash } from "node:crypto";
+
+import type { Flag, FlagValue, Rule, Rollout } from "./flag.ts";
+
+export interface Evaluation {
+  key: string;
+  value: FlagValue;
+  reason: "DISABLED" | "TARGETING_MATCH" | "SPLIT" | "STATIC";
+  variant: string;
+  revision: number;
+}
+
+export function evaluate(flag: Flag, context: Record<string, unknown>): Evaluation {
+  if (typeof context.targetingKey !== "string" || context.targetingKey.length === 0) {
+    throw new Error("targetingKey must be a non-empty string");
+  }
+  if (!flag.enabled) {
+    return resolve(flag, flag.defaultVariant, "DISABLED");
+  }
+  for (const rule of flag.rules) {
+    if (!matches(rule, context)) {
+      continue;
+    }
+    return resolve(flag, rule.variant, "TARGETING_MATCH");
+  }
+  if (!flag.rollout || !inRollout(flag.key, flag.rollout, context)) {
+    return resolve(flag, flag.defaultVariant, "STATIC");
+  }
+  return resolve(flag, flag.rollout.variant, "SPLIT");
+}
+
+function matches(rule: Rule, context: Record<string, unknown>): boolean {
+  return contextValue(context, rule.attribute) === rule.equals;
+}
+
+function inRollout(key: string, rollout: Rollout, context: Record<string, unknown>): boolean {
+  const value = contextValue(context, rollout.attribute);
+  if (typeof value !== "string") {
+    return false;
+  }
+  const digest = createHash("sha256").update(`${key}\0${value}`).digest();
+  const bucket = digest.readBigUInt64BE(0) % 10_000n;
+  return bucket < BigInt(rollout.percentage * 100);
+}
+
+function contextValue(context: Record<string, unknown>, attribute: string): unknown {
+  let current: unknown = context;
+  for (const segment of attribute.split(".")) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function resolve(flag: Flag, variant: string, reason: Evaluation["reason"]): Evaluation {
+  const value = flag.variants[variant];
+  if (value === undefined) {
+    throw new Error(`variant ${variant} is not defined`);
+  }
+  return { key: flag.key, value, reason, variant, revision: flag.revision };
+}

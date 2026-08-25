@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+import os
+from http.server import ThreadingHTTPServer
+
+from reaper_flags.api.routes import Configuration, make_handler
+from reaper_flags.store.{{.Recipe.Database.Authority}} import {{if eq .Recipe.Database.Authority "sqlite"}}SqliteAuthority{{end}}{{if eq .Recipe.Database.Authority "postgres"}}PostgresAuthority{{end}}
+
+
+def required(name: str) -> str:
+    value = os.environ.get(name)
+    if not value:
+        raise ValueError(f"{name} is required")
+    return value
+
+
+def main() -> None:
+    authority = {{if eq .Recipe.Database.Authority "sqlite"}}SqliteAuthority(os.environ.get("DATABASE_PATH", "reaper.db")){{end}}{{if eq .Recipe.Database.Authority "postgres"}}PostgresAuthority(required("DATABASE_URL")){{end}}
+    authority.initialize()
+    admin_token = required("REAPER_ADMIN_TOKEN")
+    evaluation_token = required("REAPER_EVALUATION_TOKEN")
+    if admin_token == evaluation_token:
+        raise ValueError("management and evaluation tokens must differ")
+    configuration = Configuration(
+        admin_token=admin_token,
+        admin_actor=required("REAPER_ADMIN_ACTOR"),
+        evaluation_token=evaluation_token,
+    )
+    port = int(os.environ.get("PORT", "8080"))
+    server = ThreadingHTTPServer(("0.0.0.0", port), make_handler(authority, configuration))
+    print(f"{{.Recipe.Name}} listening on {port}", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        authority.close()
+
+
+if __name__ == "__main__":
+    main()

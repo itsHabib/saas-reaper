@@ -1,6 +1,10 @@
 # Agent operating guide
 
-This repository is a SaaS Reaper golden specimen: a customer-owned feature-flag appliance plus the knowledge needed to adapt it safely. The current proof is intentionally narrow. Preserve that boundary unless the operator explicitly expands it.
+This repository contains the SaaS Reaper factory and its Go golden specimen. The
+factory composes a recipe into a customer-owned TypeScript or Python feature-flag
+service, selected database, deployment material, and agent knowledge. The proof
+is intentionally bounded; preserve its compatibility rules unless the operator
+explicitly expands them.
 
 `AGENTS.md` and `CLAUDE.md` are paired entrypoints. Keep them byte-identical.
 
@@ -14,16 +18,27 @@ Read, in order:
 4. The nearest package source and tests for the change.
 5. The relevant repo skill under `skills/`.
 
+Factory work also reads `internal/factory/recipe.go`, `catalog.go`, and
+`validate.go`. Templates are layered under `internal/factory/templates/` as
+common knowledge, language packs, database packs, and deployment packs. A new
+choice is supported only when it is cataloged, validated, rendered, and exercised
+by the product demo.
+
 `skills/` is canonical. `.agents/skills/` and `.claude/skills/` contain relative symlink projections for automatic discovery. Edit only the canonical skill and preserve both projections.
 
 Use these commands:
 
 ```sh
 make demo
+make product-demo
 make check
 ```
 
 Do not claim completion unless `make check` passes. Run `make demo` after changes to evaluation, API, storage, examples, dependency versions, or startup.
+
+Run `make product-demo` after changes to recipes, rendering, generated source,
+archive delivery, or deployment packs. Generation must refuse existing output
+paths and unsafe combinations; it must never apply external infrastructure.
 
 ## Boundary law
 

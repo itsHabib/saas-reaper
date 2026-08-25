@@ -1,0 +1,17 @@
+schema: reaper.dev/v0alpha2
+name: inventory-flags
+capability: feature-flags
+service:
+  language: typescript
+database:
+  authority: sqlite
+deployment:
+  target: aws-ec2
+  replicas: 1
+delivery:
+  format: directory
+domain:
+  tenant: warehouse
+  targetingAttributes:
+    - targetingKey
+    - warehouse.id

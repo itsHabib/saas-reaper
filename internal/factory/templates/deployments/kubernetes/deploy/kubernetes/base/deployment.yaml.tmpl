@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Recipe.Name}}
+  labels:
+    app.kubernetes.io/name: {{.Recipe.Name}}
+spec:
+  replicas: {{.Recipe.Deployment.Replicas}}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{.Recipe.Name}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{.Recipe.Name}}
+    spec:
+      serviceAccountName: {{.Recipe.Name}}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: flags
+          image: reaper-image-set-by-overlay
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: REAPER_ADMIN_ACTOR
+              valueFrom:
+                configMapKeyRef:
+                  name: {{.Recipe.Name}}
+                  key: admin-actor
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Recipe.Name}}
+                  key: database-url
+            - name: REAPER_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Recipe.Name}}
+                  key: admin-token
+            - name: REAPER_EVALUATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Recipe.Name}}
+                  key: evaluation-token
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true

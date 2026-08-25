@@ -1,0 +1,25 @@
+from __future__ import annotations
+
+from typing import Protocol
+
+from reaper_flags.flags.flag import Flag
+
+
+class RevisionConflict(Exception):
+    """A publish used a stale expected revision."""
+
+
+class FlagAuthority(Protocol):
+    def initialize(self) -> None: ...
+
+    def load(self, environment: str, key: str) -> Flag | None: ...
+
+    def publish(
+        self,
+        environment: str,
+        flag: Flag,
+        expected_revision: int,
+        actor: str,
+    ) -> Flag: ...
+
+    def close(self) -> None: ...

@@ -1,0 +1,43 @@
+variable "region" {
+  type = string
+}
+
+variable "vpc_id" {
+  type = string
+}
+
+variable "public_subnet_ids" {
+  type = list(string)
+}
+
+variable "container_image" {
+  type        = string
+  description = "Immutable image reference, preferably pinned by digest."
+}
+
+variable "certificate_arn" {
+  type        = string
+  description = "ACM certificate for the HTTPS listener."
+}
+
+variable "database_url_secret_arn" {
+  type        = string
+  description = "Secrets Manager ARN containing the PostgreSQL URL."
+}
+
+variable "admin_token_secret_arn" {
+  type = string
+}
+
+variable "evaluation_token_secret_arn" {
+  type = string
+}
+
+variable "admin_actor" {
+  type = string
+}
+
+variable "allowed_cidrs" {
+  type        = list(string)
+  description = "Networks allowed to reach the public HTTPS listener."
+}

@@ -1,0 +1,88 @@
+resource "google_service_account" "flags" {
+  account_id   = "{{.Recipe.Name}}"
+  display_name = "{{.Recipe.Name}} runtime"
+}
+
+locals {
+  secrets = toset([
+    var.database_url_secret,
+    var.admin_token_secret,
+    var.evaluation_token_secret,
+  ])
+}
+
+resource "google_secret_manager_secret_iam_member" "runtime" {
+  for_each  = local.secrets
+  secret_id = each.value
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.flags.email}"
+}
+
+resource "google_cloud_run_v2_service" "flags" {
+  name     = "{{.Recipe.Name}}"
+  location = var.region
+  ingress  = "INGRESS_TRAFFIC_ALL"
+
+  template {
+    service_account = google_service_account.flags.email
+    scaling {
+      min_instance_count = 1
+      max_instance_count = {{.Recipe.Deployment.Replicas}}
+    }
+    containers {
+      image = var.container_image
+      ports { container_port = 8080 }
+      env {
+        name  = "PORT"
+        value = "8080"
+      }
+      env {
+        name  = "REAPER_ADMIN_ACTOR"
+        value = var.admin_actor
+      }
+      env {
+        name = "DATABASE_URL"
+        value_source {
+          secret_key_ref {
+            secret  = var.database_url_secret
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name = "REAPER_ADMIN_TOKEN"
+        value_source {
+          secret_key_ref {
+            secret  = var.admin_token_secret
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name = "REAPER_EVALUATION_TOKEN"
+        value_source {
+          secret_key_ref {
+            secret  = var.evaluation_token_secret
+            version = "latest"
+          }
+        }
+      }
+      startup_probe {
+        http_get { path = "/healthz" }
+      }
+    }
+  }
+  depends_on = [google_secret_manager_secret_iam_member.runtime]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "invoker" {
+  for_each = toset(var.invoker_members)
+  name     = google_cloud_run_v2_service.flags.name
+  location = google_cloud_run_v2_service.flags.location
+  role     = "roles/run.invoker"
+  member   = each.value
+}
+
+output "endpoint" {
+  value = google_cloud_run_v2_service.flags.uri
+}

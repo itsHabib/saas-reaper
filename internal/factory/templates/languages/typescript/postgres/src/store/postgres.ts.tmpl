@@ -1,0 +1,101 @@
+import pg from "pg";
+
+import type { Flag } from "../flags/flag.ts";
+import { RevisionConflict, type FlagAuthority } from "./contract.ts";
+
+const { Pool } = pg;
+
+export class PostgresAuthority implements FlagAuthority {
+  readonly #pool: pg.Pool;
+
+  constructor(connectionString: string) {
+    this.#pool = new Pool({ connectionString });
+  }
+
+  async initialize(): Promise<void> {
+    await this.#pool.query(`
+      CREATE TABLE IF NOT EXISTS flags (
+        environment TEXT NOT NULL,
+        key TEXT NOT NULL,
+        revision BIGINT NOT NULL,
+        definition JSONB NOT NULL,
+        PRIMARY KEY (environment, key)
+      );
+      CREATE TABLE IF NOT EXISTS audit (
+        sequence BIGSERIAL PRIMARY KEY,
+        environment TEXT NOT NULL,
+        key TEXT NOT NULL,
+        revision BIGINT NOT NULL,
+        actor TEXT NOT NULL,
+        occurred_at TIMESTAMPTZ NOT NULL
+      );
+    `);
+  }
+
+  async load(environment: string, key: string): Promise<Flag | undefined> {
+    const result = await this.#pool.query<{ definition: Flag }>(
+      "SELECT definition FROM flags WHERE environment = $1 AND key = $2",
+      [environment, key],
+    );
+    return result.rows[0]?.definition;
+  }
+
+  async publish(environment: string, flag: Flag, expectedRevision: number, actor: string): Promise<Flag> {
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN");
+      const current = await client.query<{ revision: string }>(
+        "SELECT revision FROM flags WHERE environment = $1 AND key = $2 FOR UPDATE",
+        [environment, flag.key],
+      );
+      requireRevision(current.rows[0]?.revision, expectedRevision);
+      const published = { ...flag, revision: expectedRevision + 1, updatedAt: new Date().toISOString() };
+      await client.query(`
+        INSERT INTO flags (environment, key, revision, definition)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT(environment, key) DO UPDATE SET
+          revision = EXCLUDED.revision,
+          definition = EXCLUDED.definition
+      `, [environment, flag.key, published.revision, published]);
+      await client.query(`
+        INSERT INTO audit (environment, key, revision, actor, occurred_at)
+        VALUES ($1, $2, $3, $4, $5)
+      `, [environment, flag.key, published.revision, actor, published.updatedAt]);
+      await client.query("COMMIT");
+      return published;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      if (postgresCode(error) === "23505") {
+        throw new RevisionConflict(`expected revision ${expectedRevision}, flag was created concurrently`);
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.#pool.end();
+  }
+}
+
+function postgresCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") {
+    return undefined;
+  }
+  const code = (error as { code?: unknown }).code;
+  if (typeof code !== "string") {
+    return undefined;
+  }
+  return code;
+}
+
+function requireRevision(current: string | undefined, expected: number): void {
+  if (current === undefined && expected === 0) {
+    return;
+  }
+  if (Number(current) === expected) {
+    return;
+  }
+  throw new RevisionConflict(`expected revision ${expected}, current revision ${current ?? 0}`);
+}

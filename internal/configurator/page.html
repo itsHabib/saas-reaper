@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SaaS Reaper</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      background: #0a0b0d;
+      color: #f4f0e8;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 20% 0%, #30201d 0, #0a0b0d 43%); }
+    main { width: min(1080px, calc(100% - 40px)); margin: 0 auto; padding: 72px 0; }
+    .mark { color: #ef6b45; font-size: 13px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
+    h1 { max-width: 820px; margin: 14px 0 12px; font-family: Georgia, serif; font-size: clamp(48px, 8vw, 92px); font-weight: 500; line-height: .94; letter-spacing: -.055em; }
+    .lede { max-width: 650px; color: #b7b1a7; font-size: 19px; line-height: 1.55; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; margin-top: 54px; }
+    form, aside { border: 1px solid #2e2d2b; background: rgba(17, 18, 20, .86); border-radius: 16px; }
+    form { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 28px; }
+    label { display: grid; gap: 8px; color: #b7b1a7; font-size: 13px; font-weight: 700; letter-spacing: .04em; }
+    label.wide { grid-column: 1 / -1; }
+    input, select { width: 100%; border: 1px solid #3a3834; border-radius: 9px; background: #0d0e10; color: #f4f0e8; padding: 13px 14px; font: inherit; }
+    input:focus, select:focus { outline: 2px solid #ef6b45; outline-offset: 1px; }
+    button { grid-column: 1 / -1; border: 0; border-radius: 10px; background: #ef6b45; color: #160b08; padding: 15px 18px; font: inherit; font-weight: 900; cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .58; }
+    aside { padding: 26px; }
+    aside h2 { margin: 0 0 22px; font-family: Georgia, serif; font-size: 25px; font-weight: 500; }
+    .receipt { display: grid; gap: 16px; margin: 0; }
+    .receipt div { border-bottom: 1px solid #292826; padding-bottom: 13px; }
+    dt { color: #7e7971; font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    dd { margin: 5px 0 0; font-size: 15px; }
+    #status { grid-column: 1 / -1; min-height: 21px; color: #ef9c82; font-size: 14px; }
+    @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } form { grid-template-columns: 1fr; } label.wide, button, #status { grid-column: auto; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark">SaaS Reaper / Feature flags</div>
+    <h1>Own the capability. Keep the code.</h1>
+    <p class="lede">Choose a language, database, and deployment. Reaper composes the working service, infrastructure, runbooks, and agent knowledge into a repository you own.</p>
+    <div class="layout">
+      <form id="recipe">
+        <label class="wide">Project name<input id="name" required value="acme-flags" pattern="[a-z][a-z0-9-]{1,62}"></label>
+        <label>Service language<select id="language"></select></label>
+        <label>Database authority<select id="database"></select></label>
+        <label>Deployment target<select id="deployment"></select></label>
+        <label>Replicas<input id="replicas" type="number" min="1" value="1"></label>
+        <label>Tenant concept<input id="tenant" required value="organization"></label>
+        <label class="wide">Approved targeting attributes<input id="attributes" required value="targetingKey, organization.id"></label>
+        <button id="build" type="submit">Build and download repository</button>
+        <div id="status" role="status"></div>
+      </form>
+      <aside>
+        <h2>Your generated stack</h2>
+        <dl class="receipt">
+          <div><dt>Capability</dt><dd>Feature flags</dd></div>
+          <div><dt>Runtime</dt><dd id="runtimeReceipt">—</dd></div>
+          <div><dt>Authority</dt><dd id="databaseReceipt">—</dd></div>
+          <div><dt>Deployment</dt><dd id="deploymentReceipt">—</dd></div>
+          <div><dt>Delivery</dt><dd>Customer-owned ZIP</dd></div>
+          <div><dt>Included</dt><dd>Code, infra, checks, docs, Codex + Claude skills</dd></div>
+        </dl>
+      </aside>
+    </div>
+  </main>
+  <script>
+    const form = document.querySelector("#recipe");
+    const language = document.querySelector("#language");
+    const database = document.querySelector("#database");
+    const deployment = document.querySelector("#deployment");
+    const replicas = document.querySelector("#replicas");
+    const status = document.querySelector("#status");
+    const button = document.querySelector("#build");
+    let catalog;
+
+    function option(choice) {
+      const element = document.createElement("option");
+      element.value = choice.value;
+      element.textContent = choice.label;
+      element.title = choice.description;
+      return element;
+    }
+
+    function compatible(choice) {
+      if (database.value === "postgres") return true;
+      return choice.value === "docker" || choice.value === "aws-ec2";
+    }
+
+    function renderDeployments() {
+      const selected = deployment.value;
+      deployment.replaceChildren(...catalog.deployments.filter(compatible).map(option));
+      if ([...deployment.options].some((item) => item.value === selected)) deployment.value = selected;
+      updateReplicas();
+    }
+
+    function updateReplicas() {
+      const single = deployment.value === "docker" || deployment.value === "aws-ec2";
+      replicas.disabled = single;
+      if (single) replicas.value = "1";
+      if (!single && Number(replicas.value) < 2) replicas.value = "2";
+      updateReceipt();
+    }
+
+    function labelFor(choices, value) {
+      return choices.find((choice) => choice.value === value)?.label ?? value;
+    }
+
+    function updateReceipt() {
+      document.querySelector("#runtimeReceipt").textContent = labelFor(catalog.languages, language.value);
+      document.querySelector("#databaseReceipt").textContent = labelFor(catalog.databases, database.value);
+      document.querySelector("#deploymentReceipt").textContent = labelFor(catalog.deployments, deployment.value);
+    }
+
+    async function start() {
+      catalog = await fetch("/api/catalog").then((response) => response.json());
+      language.replaceChildren(...catalog.languages.map(option));
+      database.replaceChildren(...catalog.databases.map(option));
+      renderDeployments();
+    }
+
+    async function build(event) {
+      event.preventDefault();
+      button.disabled = true;
+      status.textContent = "Composing your repository…";
+      const name = document.querySelector("#name").value;
+      const recipe = {
+        schema: "reaper.dev/v0alpha2",
+        name,
+        capability: "feature-flags",
+        service: { language: language.value },
+        database: { authority: database.value },
+        deployment: { target: deployment.value, replicas: Number(replicas.value) },
+        delivery: { format: "zip" },
+        domain: {
+          tenant: document.querySelector("#tenant").value,
+          targetingAttributes: document.querySelector("#attributes").value.split(",").map((item) => item.trim()).filter(Boolean),
+        },
+      };
+      try {
+        const response = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(recipe),
+        });
+        if (!response.ok) throw new Error((await response.json()).error ?? "generation failed");
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(await response.blob());
+        link.download = `${name}.zip`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+        status.textContent = "Repository built. Your download has started.";
+      } catch (error) {
+        status.textContent = error instanceof Error ? error.message : "generation failed";
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    database.addEventListener("change", renderDeployments);
+    language.addEventListener("change", updateReceipt);
+    deployment.addEventListener("change", updateReplicas);
+    form.addEventListener("submit", build);
+    start().catch((error) => { status.textContent = error.message; });
+  </script>
+</body>
+</html>

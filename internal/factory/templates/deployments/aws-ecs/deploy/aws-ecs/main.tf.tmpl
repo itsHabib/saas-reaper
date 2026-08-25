@@ -1,0 +1,178 @@
+locals {
+  name = "{{.Recipe.Name}}"
+}
+
+resource "aws_cloudwatch_log_group" "flags" {
+  name              = "/ecs/${local.name}"
+  retention_in_days = 30
+}
+
+resource "aws_ecs_cluster" "flags" {
+  name = local.name
+}
+
+resource "aws_iam_role" "execution" {
+  name = "${local.name}-execution"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "execution" {
+  role       = aws_iam_role.execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+resource "aws_iam_role_policy" "secrets" {
+  role = aws_iam_role.execution.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action   = ["secretsmanager:GetSecretValue"]
+      Effect   = "Allow"
+      Resource = [var.database_url_secret_arn, var.admin_token_secret_arn, var.evaluation_token_secret_arn]
+    }]
+  })
+}
+
+resource "aws_iam_role" "task" {
+  name = "${local.name}-task"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_ecs_task_definition" "flags" {
+  family                   = local.name
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = 256
+  memory                   = 512
+  execution_role_arn       = aws_iam_role.execution.arn
+  task_role_arn            = aws_iam_role.task.arn
+
+  container_definitions = jsonencode([{
+    name         = local.name
+    image        = var.container_image
+    essential    = true
+    portMappings = [{ containerPort = 8080, protocol = "tcp" }]
+    environment = [
+      { name = "PORT", value = "8080" },
+      { name = "REAPER_ADMIN_ACTOR", value = var.admin_actor }
+    ]
+    secrets = [
+      { name = "DATABASE_URL", valueFrom = var.database_url_secret_arn },
+      { name = "REAPER_ADMIN_TOKEN", valueFrom = var.admin_token_secret_arn },
+      { name = "REAPER_EVALUATION_TOKEN", valueFrom = var.evaluation_token_secret_arn }
+    ]
+    healthCheck = {
+      command     = ["CMD-SHELL", {{if eq .Recipe.Service.Language "typescript"}}"wget -q -O - http://127.0.0.1:8080/healthz || exit 1"{{end}}{{if eq .Recipe.Service.Language "python"}}"python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')\" || exit 1"{{end}}]
+      interval    = 30
+      retries     = 3
+      startPeriod = 10
+      timeout     = 5
+    }
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.flags.name
+        awslogs-region        = var.region
+        awslogs-stream-prefix = "flags"
+      }
+    }
+  }])
+}
+
+resource "aws_security_group" "load_balancer" {
+  name   = "${local.name}-alb"
+  vpc_id = var.vpc_id
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = var.allowed_cidrs
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_security_group" "task" {
+  name   = "${local.name}-task"
+  vpc_id = var.vpc_id
+  ingress {
+    from_port       = 8080
+    to_port         = 8080
+    protocol        = "tcp"
+    security_groups = [aws_security_group.load_balancer.id]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_lb" "flags" {
+  name               = local.name
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.load_balancer.id]
+  subnets            = var.public_subnet_ids
+}
+
+resource "aws_lb_target_group" "flags" {
+  name        = local.name
+  port        = 8080
+  protocol    = "HTTP"
+  target_type = "ip"
+  vpc_id      = var.vpc_id
+  health_check { path = "/healthz" }
+}
+
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.flags.arn
+  port              = 443
+  protocol          = "HTTPS"
+  certificate_arn   = var.certificate_arn
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.flags.arn
+  }
+}
+
+resource "aws_ecs_service" "flags" {
+  name            = local.name
+  cluster         = aws_ecs_cluster.flags.id
+  task_definition = aws_ecs_task_definition.flags.arn
+  desired_count   = {{.Recipe.Deployment.Replicas}}
+  launch_type     = "FARGATE"
+  network_configuration {
+    subnets          = var.public_subnet_ids
+    security_groups  = [aws_security_group.task.id]
+    assign_public_ip = true
+  }
+  load_balancer {
+    target_group_arn = aws_lb_target_group.flags.arn
+    container_name   = local.name
+    container_port   = 8080
+  }
+  depends_on = [aws_lb_listener.https]
+}
+
+output "endpoint" {
+  value = "https://${aws_lb.flags.dns_name}"
+}

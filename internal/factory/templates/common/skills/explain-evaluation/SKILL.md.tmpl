@@ -1,0 +1,16 @@
+---
+name: explain-evaluation
+description: Reconstruct why a flag returned a value without changing definitions or authority.
+---
+
+# Explain a flag decision
+
+1. Capture the environment, flag key, revision, and non-sensitive context used.
+2. Read the exact stored definition for that revision.
+3. Walk the public order: disabled, first matching rule, deterministic rollout,
+   then default.
+4. Report the selected variant, reason, and decisive attribute without exposing
+   credentials or unneeded personal data.
+5. If replay disagrees with the response, stop and preserve both artifacts.
+
+This skill is read-only. It never publishes a flag or changes targeting policy.

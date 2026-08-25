@@ -1,0 +1,18 @@
+---
+name: onboard-domain
+description: Adapt the generated feature-flag service to the customer's real tenant vocabulary before adding targeting behavior.
+---
+
+# Onboard a customer domain
+
+1. Read `DOMAIN.md`, `REAPER.yaml`, and the existing flags policy.
+2. Interview the operator for the tenant boundary, stable subject identifiers,
+   product concepts that may affect behavior, and prohibited sensitive data.
+3. Replace placeholder vocabulary in `DOMAIN.md` before changing code.
+4. Add only explicitly approved targeting attributes using
+   `skills/add-targeting-attribute/SKILL.md`.
+5. Keep unknown context inert. It cannot become policy by observation.
+6. Run `make check` and `make demo`, then record the adaptation decision.
+
+Do not broaden authentication, write authority, or deployment while onboarding
+domain vocabulary.

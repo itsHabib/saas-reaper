@@ -1,0 +1,15 @@
+# Kubernetes deployment
+
+The base contains a Deployment, ClusterIP Service, ServiceAccount, ConfigMap,
+PodDisruptionBudget, NetworkPolicy, health probes, resource bounds, and a hardened
+container security context.
+
+Copy `secret.example.yaml` outside version control or integrate your existing
+secret controller. Set the immutable image in an overlay, then inspect:
+
+```sh
+kubectl kustomize deploy/kubernetes/base
+```
+
+The selected PostgreSQL authority is external; this pack does not install a
+database operator into an existing cluster.

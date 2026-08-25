@@ -1,0 +1,51 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { evaluate } from "./evaluate.ts";
+import { validateFlag, type Flag } from "./flag.ts";
+
+test("first matching domain rule wins", () => {
+  const flag: Flag = {
+    key: "checkout-v2",
+    kind: "boolean",
+    enabled: true,
+    defaultVariant: "off",
+    variants: { off: false, on: true },
+    rules: [{ attribute: "organization.id", equals: "acme", variant: "on" }],
+    revision: 3,
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+  assert.deepEqual(evaluate(flag, { targetingKey: "user-1", organization: { id: "acme" } }), {
+    key: "checkout-v2",
+    value: true,
+    reason: "TARGETING_MATCH",
+    variant: "on",
+    revision: 3,
+  });
+});
+
+test("missing targeting key is rejected", () => {
+  const flag: Flag = {
+    key: "checkout-v2",
+    kind: "boolean",
+    enabled: true,
+    defaultVariant: "off",
+    variants: { off: false },
+    rules: [],
+    revision: 1,
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+  assert.throws(() => evaluate(flag, {}), /targetingKey/);
+});
+
+test("unknown domain attributes and unsafe keys are rejected", () => {
+  const definition = {
+    kind: "boolean",
+    enabled: true,
+    defaultVariant: "off",
+    variants: { off: false, on: true },
+    rules: [{ attribute: "user.email", equals: "private@example.test", variant: "on" }],
+  };
+  assert.throws(() => validateFlag(definition, "checkout-v2"), /not approved/);
+  assert.throws(() => validateFlag({ ...definition, rules: [] }, "../checkout"), /unsupported character/);
+});

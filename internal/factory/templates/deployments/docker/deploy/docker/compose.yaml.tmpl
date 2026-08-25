@@ -1,0 +1,36 @@
+services:
+  flags:
+    build:
+      context: ../..
+    environment:
+      PORT: "8080"
+      REAPER_ADMIN_TOKEN: ${REAPER_ADMIN_TOKEN:?set REAPER_ADMIN_TOKEN}
+      REAPER_ADMIN_ACTOR: ${REAPER_ADMIN_ACTOR:-local-operator}
+      REAPER_EVALUATION_TOKEN: ${REAPER_EVALUATION_TOKEN:?set REAPER_EVALUATION_TOKEN}
+{{if eq .Recipe.Database.Authority "sqlite"}}      DATABASE_PATH: /data/reaper.db
+    volumes:
+      - reaper-data:/data
+{{end}}{{if eq .Recipe.Database.Authority "postgres"}}      DATABASE_URL: postgresql://reaper:reaper@postgres:5432/reaper
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: reaper
+      POSTGRES_USER: reaper
+      POSTGRES_PASSWORD: reaper
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reaper"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+{{end}}    ports:
+      - "8080:8080"
+
+volumes:
+{{if eq .Recipe.Database.Authority "sqlite"}}  reaper-data:
+{{end}}{{if eq .Recipe.Database.Authority "postgres"}}  postgres-data:
+{{end}}
