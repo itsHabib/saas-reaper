@@ -1,7 +1,10 @@
-.PHONY: setup demo product-demo check verify
+.PHONY: setup work demo product-demo check verify
 
 setup:
 	./scripts/setup.sh
+
+work:
+	@bash scripts/check-work.sh --json
 
 demo: setup
 	./scripts/demo.sh

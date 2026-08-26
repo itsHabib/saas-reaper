@@ -1,0 +1,48 @@
+<!-- reaper-work:v1 -->
+# Work: Adapt {{.Recipe.Domain.Tenant}} feature flags
+
+Work-ID: adapt-{{.Recipe.Name}}-domain
+Status: ready
+Subject: recipe:{{.RecipeDigest}}
+Stop-at: local-green
+
+## Outcome
+
+The generated {{.Recipe.Name}} service uses approved {{.Recipe.Domain.Tenant}}
+vocabulary while preserving its selected stack and feature-flag semantics.
+
+## Preserve
+
+- `REAPER.lock.yaml`: generation origin remains immutable.
+- Flag evaluation order, rollout hashing, revision conflicts, and audit atomicity remain compatible.
+- Management and evaluation credentials remain separate; request JSON never supplies audit identity.
+- Generated code remains customer-owned and makes no calls to SaaS Reaper.
+
+## Change
+
+- `DOMAIN.md`: record customer vocabulary and privacy decisions.
+- `REAPER.yaml`: record approved targeting attributes without changing the selected stack.
+- `{{.PolicyPath}}`: implement only domain policy needed by an approved attribute.
+- `{{.ProofPath}}`: add the matching positive and rejection evidence.
+
+## Prove
+
+- Green: `make check` passes the selected {{.Recipe.Service.Language}} + {{.Recipe.Database.Authority}} stack.
+{{if eq .Recipe.Database.Authority "sqlite"}}- Green: `make demo` proves one live publish and evaluation path.
+{{end}}{{if eq .Recipe.Database.Authority "postgres"}}- Green: `DATABASE_URL=postgresql://user:password@localhost/database make demo` proves one live path against a disposable database.
+{{end}}- Red: an unapproved targeting attribute is rejected without changing API or storage code.
+
+## Stop
+
+- Stop before adding flag kinds, rule operators, credentials, targeting data, or deployment capabilities not selected in `REAPER.yaml`.
+- Stop before using a production database or applying deployment material.
+- Stop when the requested behavior needs a product or privacy decision not recorded in `DOMAIN.md`.
+
+## Evidence
+
+- Pending: no customer-owned adaptation has been attempted yet.
+
+## Handoff
+
+- Last: SaaS Reaper {{.FactoryVersion}} generated this contract from `{{.RecipeDigest}}`.
+- Next: choose one approved domain change, set Status to active, and replace this handoff with the exact first edit.

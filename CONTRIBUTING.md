@@ -23,7 +23,8 @@ make verify
 `make check` is the fast correctness and policy floor. It runs formatting,
 static analysis, strict Go linting, race-enabled Go tests, TypeScript checking,
 Python compilation, package-boundary checks, skill-projection checks, and the
-bounded domain-adaptation control.
+bounded domain-adaptation control. It also validates the root `WORK.md` against
+its exact Git subject.
 
 `make product-demo` is the extension proof. It generates representative
 repositories, compares deterministic output, tests ZIP delivery, compiles every
@@ -86,6 +87,13 @@ common or language file.
 Increment a pack's version whenever its rendered content or compatibility
 contract changes. Increment `FactoryVersion` whenever any generated output
 changes, including common templates. The pair makes origin receipts meaningful.
+
+Every generated repository includes the common `WORK.md` contract and
+`scripts/check-work.sh` validator. Common-template changes must preserve the
+120-line ceiling, exact recipe-subject binding, fixed section order, green/red
+proof polarity, and stable failure codes described in
+`docs/work-contract.md`. `WORK.md` is active-work state, not another place to
+duplicate this extension contract.
 
 Compatibility is part of registration. Database packs declare whether their
 authority is shared, and deployment packs explicitly name the database
@@ -225,4 +233,5 @@ Before requesting review, confirm:
 - [ ] Generated checks and the representative live demo pass.
 - [ ] Output is deterministic and existing destinations are never overwritten.
 - [ ] `AGENTS.md` and `CLAUDE.md` remain byte-identical where required.
+- [ ] Generated `WORK.md` is tailored, bounded, and accepted by `make work`.
 - [ ] No external infrastructure was applied.

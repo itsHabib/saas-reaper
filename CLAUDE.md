@@ -12,11 +12,15 @@ explicitly expands them.
 
 Read, in order:
 
-1. `README.md` for the product boundary and runnable demo.
-2. `REAPER.yaml` for selected and excluded capabilities.
-3. `DOMAIN.md` for customer vocabulary and targeting-data policy.
-4. The nearest package source and tests for the change.
-5. The relevant repo skill under `skills/`.
+1. `WORK.md` for the exact active outcome, subject, proof, and stop boundary.
+2. `README.md` for the product boundary and runnable demo.
+3. `REAPER.yaml` for selected and excluded capabilities.
+4. `DOMAIN.md` for customer vocabulary and targeting-data policy.
+5. The nearest package source and tests for the change.
+6. The relevant repo skill under `skills/`.
+
+`WORK.md` records intent and resumable state; it does not grant authority. Keep
+it at or below 120 lines and run `make work` after changing it.
 
 Factory work also reads `internal/factory/recipe.go`, `catalog.go`, and
 `validate.go`. Templates are layered under `internal/factory/templates/` as
@@ -130,5 +134,5 @@ A change is complete only when:
 - The behavior is exercised by a focused positive test and a rejection, conflict, or failure test.
 - `make check` passes, including race and boundary checks.
 - `make demo` passes when a runnable surface changed.
-- `AGENTS.md`, `CLAUDE.md`, `DOMAIN.md`, `REAPER.yaml`, and `README.md` remain consistent with the code.
+- `WORK.md`, `AGENTS.md`, `CLAUDE.md`, `DOMAIN.md`, `REAPER.yaml`, and `README.md` remain consistent with the code.
 - The diff contains no unrelated cleanup or speculative capability.

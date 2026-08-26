@@ -1,7 +1,10 @@
-.PHONY: setup check demo
+.PHONY: setup work check demo
 
 setup:
 	bash scripts/setup-language.sh
+
+work:
+	@bash scripts/check-work.sh --json
 
 check:
 	bash scripts/check.sh

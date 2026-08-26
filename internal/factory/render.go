@@ -13,7 +13,7 @@ import (
 )
 
 // FactoryVersion identifies the template set recorded in generated lock receipts.
-const FactoryVersion = "0.3.0"
+const FactoryVersion = "0.4.0"
 
 //go:embed templates
 var templateFiles embed.FS
@@ -30,6 +30,8 @@ type renderData struct {
 	RecipeDigest      string
 	Attributes        string
 	ModuleName        string
+	PolicyPath        string
+	ProofPath         string
 	LanguageVersion   string
 	DatabaseVersion   string
 	DeploymentVersion string
@@ -131,11 +133,25 @@ func newRenderData(recipe Recipe) (renderData, error) {
 		RecipeDigest:      fmt.Sprintf("sha256:%x", sha256.Sum256(recipeData)),
 		Attributes:        strings.Join(quoted, ", "),
 		ModuleName:        strings.ReplaceAll(recipe.Name, "-", "_"),
+		PolicyPath:        policyPaths[recipe.Service.Language],
+		ProofPath:         proofPaths[recipe.Service.Language],
 		LanguageVersion:   language.version,
 		DatabaseVersion:   database.version,
 		DeploymentVersion: deployment.version,
 		DeliveryVersion:   delivery.version,
 	}, nil
+}
+
+var policyPaths = map[string]string{
+	"go":         "internal/flags/",
+	"typescript": "src/flags/",
+	"python":     "reaper_flags/flags/",
+}
+
+var proofPaths = map[string]string{
+	"go":         "internal/flags/evaluate_test.go",
+	"typescript": "src/flags/evaluate.test.ts",
+	"python":     "tests/test_evaluate.py",
 }
 
 func publishDirectory(staging, destination, _ string) (Result, error) {

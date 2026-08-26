@@ -33,8 +33,8 @@ The customer chooses Go, TypeScript, or Python; SQLite or PostgreSQL; a
 deployment pack; and directory/ZIP delivery. Reaper validates compatibility,
 renders only the selected mechanisms, and returns an independent repository
 containing the service, infrastructure, `AGENTS.md`, `CLAUDE.md`, `DOMAIN.md`,
-skills, receipt, checks, and demo. Generation never provisions infrastructure
-and generated services do not call home.
+`WORK.md`, skills, receipt, checks, and demo. Generation never provisions
+infrastructure and generated services do not call home.
 
 Supported deployment packs are Docker Compose, AWS ECS/Fargate, AWS EC2, GCP
 Cloud Run, and Kubernetes/Kustomize. Managed and multi-replica targets require
@@ -71,6 +71,18 @@ Run the validation floor:
 ```sh
 make check
 ```
+
+## Frontier work contract
+
+Every generated repository includes a tailored `WORK.md`: a compact active-work
+packet with an exact generation subject, one outcome, protected invariants,
+permitted paths, green and red proof obligations, stop conditions, evidence,
+and a resumable handoff. It is deliberately not another agent manual.
+
+`make work` validates the contract and emits a small JSON summary. `make check`
+runs the same validation before language checks. See
+[docs/work-contract.md](docs/work-contract.md) for the bounded schema and its
+honesty limits.
 
 ## Contributing
 
