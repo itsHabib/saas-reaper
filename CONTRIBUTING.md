@@ -72,13 +72,17 @@ The executable contract lives in
 Adding only a catalog entry or only a directory fails locally and in CI.
 
 The v0 automation proves registration, compatibility, deterministic rendering,
-compilation, delivery, and representative live evaluation. It does not yet
-provide one cross-language behavioral harness for every store/API invariant. A
-new language or database must therefore add pack-specific evidence for stale
-revisions, concurrent creation, restart durability, atomic audit writes,
-authentication separation, and rollout hashing. Building that shared
-conformance harness is the next extension milestone; do not describe the
-current structural matrix as semantic proof.
+compilation, delivery, and representative live evaluation. Evaluation semantics
+now have one cross-language conformance harness: `scripts/conformance.sh`,
+wired into the product demo, boots every generated SQLite service and drives
+the real OpenFeature Go, TypeScript, and Python clients through the specimen's
+scenario table, so a new language pack must pass it unchanged. There is still
+no shared behavioral harness for every store/API invariant. A new language or
+database must therefore add pack-specific evidence for stale revisions,
+concurrent creation, restart durability, atomic audit writes, authentication
+separation, and rollout hashing. Extending the conformance harness to those
+invariants is the next extension milestone; do not describe the structural
+matrix plus evaluation conformance as complete semantic proof.
 
 Each rendered path has exactly one owning layer. The renderer rejects collisions
 instead of letting a later database or deployment pack silently overwrite a

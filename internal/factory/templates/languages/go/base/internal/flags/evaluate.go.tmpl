@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"strings"
 )
 
 func Evaluate(flag Flag, context map[string]any) (Evaluation, error) {
@@ -31,7 +30,7 @@ func Evaluate(flag Flag, context map[string]any) (Evaluation, error) {
 }
 
 func matches(rule Rule, context map[string]any) bool {
-	value, valid := contextValue(context, rule.Attribute).(string)
+	value, valid := context[rule.Attribute].(string)
 	if !valid {
 		return false
 	}
@@ -39,25 +38,13 @@ func matches(rule Rule, context map[string]any) bool {
 }
 
 func inRollout(key string, rollout Rollout, context map[string]any) bool {
-	value, valid := contextValue(context, rollout.Attribute).(string)
+	value, valid := context[rollout.Attribute].(string)
 	if !valid {
 		return false
 	}
 	digest := sha256.Sum256([]byte(key + "\x00" + value))
 	bucket := binary.BigEndian.Uint64(digest[:8]) % 10_000
 	return bucket < uint64(rollout.Percentage*100)
-}
-
-func contextValue(context map[string]any, attribute string) any {
-	var current any = context
-	for _, segment := range strings.Split(attribute, ".") {
-		record, valid := current.(map[string]any)
-		if !valid {
-			return nil
-		}
-		current = record[segment]
-	}
-	return current
 }
 
 func resolve(flag Flag, variant, reason string) (Evaluation, error) {

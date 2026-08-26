@@ -35,8 +35,9 @@ func (s *Service) List(environment string) ([]Flag, error) {
 }
 
 func evaluate(flag Flag, context map[string]any) (Evaluation, error) {
-	if _, ok := context["targetingKey"].(string); !ok {
-		return Evaluation{}, fmt.Errorf("%w: targetingKey must be a string", ErrInvalid)
+	targetingKey, ok := context["targetingKey"].(string)
+	if !ok || targetingKey == "" {
+		return Evaluation{}, fmt.Errorf("%w: targetingKey must be a non-empty string", ErrInvalid)
 	}
 	if !flag.Enabled {
 		return resolve(flag, flag.DefaultVariant, "DISABLED"), nil

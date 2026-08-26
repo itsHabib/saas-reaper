@@ -7,9 +7,11 @@ This repository assumes a multi-tenant product whose customer boundary is a
 
 {{range .Recipe.Domain.TargetingAttributes}}- `{{.}}`
 {{end}}
-`targetingKey` is required and should be pseudonymous. Add personal or sensitive
-attributes only after an explicit privacy decision, positive tests, and rejection
-tests. Definitions cannot depend on unknown request context.
+Dotted attribute names are flat evaluation-context keys on the wire, never
+nested objects. `targetingKey` is required and should be pseudonymous. Add
+personal or sensitive attributes only after an explicit privacy decision,
+positive tests, and rejection tests. Definitions cannot depend on unknown
+request context.
 
 ## Authority
 

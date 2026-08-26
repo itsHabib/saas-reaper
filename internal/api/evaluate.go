@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -57,7 +58,11 @@ func (s *Server) evaluateAll(w http.ResponseWriter, r *http.Request) {
 		writeEvaluationError(w, "", err)
 		return
 	}
-	etag := flagETag(listed)
+	etag, err := evaluationETag(listed, request.Context)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"errorDetails": "internal error"})
+		return
+	}
 	w.Header().Set("ETag", etag)
 	if r.Header.Get("If-None-Match") == etag {
 		writeJSON(w, http.StatusNotModified, nil)
@@ -126,11 +131,17 @@ func ofrepFailure(key, code, details string) evaluationFailure {
 	return evaluationFailure{Key: key, ErrorCode: code, ErrorDetails: details}
 }
 
-func flagETag(listed []flags.Flag) string {
+// evaluationETag must cover the evaluation context, not only the definitions,
+// or a caching client replays one context's decisions for another.
+func evaluationETag(listed []flags.Flag, context map[string]any) (string, error) {
 	hash := sha256.New()
 	for _, flag := range listed {
 		_, _ = fmt.Fprintf(hash, "%s:%d\x00", flag.Key, flag.Revision)
 	}
-	encoded := hex.EncodeToString(hash.Sum(nil))
-	return strconv.Quote(encoded)
+	encoded, err := json.Marshal(context)
+	if err != nil {
+		return "", fmt.Errorf("encode evaluation context: %w", err)
+	}
+	_, _ = hash.Write(encoded)
+	return strconv.Quote(hex.EncodeToString(hash.Sum(nil))), nil
 }

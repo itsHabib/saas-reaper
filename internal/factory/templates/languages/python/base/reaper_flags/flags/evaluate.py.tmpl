@@ -32,25 +32,19 @@ def evaluate(flag: Flag, context: dict[str, Any]) -> Evaluation:
 
 
 def matches(rule: Rule, context: dict[str, Any]) -> bool:
-    return context_value(context, rule.attribute) == rule.equals
+    value = context.get(rule.attribute)
+    if not isinstance(value, str):
+        return False
+    return value == rule.equals
 
 
 def in_rollout(key: str, rollout: Rollout, context: dict[str, Any]) -> bool:
-    value = context_value(context, rollout.attribute)
+    value = context.get(rollout.attribute)
     if not isinstance(value, str):
         return False
     digest = hashlib.sha256(f"{key}\0{value}".encode()).digest()
     bucket = int.from_bytes(digest[:8], "big") % 10_000
     return bucket < rollout.percentage * 100
-
-
-def context_value(context: dict[str, Any], attribute: str) -> object:
-    current: object = context
-    for segment in attribute.split("."):
-        if not isinstance(current, dict):
-            return None
-        current = current.get(segment)
-    return current
 
 
 def resolve(flag: Flag, variant: str, reason: str) -> Evaluation:

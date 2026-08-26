@@ -61,6 +61,21 @@ evaluation HTTP ──┘
 Flag validation and evaluation own policy. HTTP and database packages own
 mechanism. The composition root is the only place concrete mechanisms meet.
 
+## API surface
+
+The generated service intentionally exposes only:
+
+- `GET /healthz`
+- `PUT /v1/environments/{environment}/flags/{key}` — authenticated management publish
+- `POST /environments/{environment}/ofrep/v1/evaluate/flags/{key}` — authenticated OFREP single-flag evaluation
+
+Dotted targeting attributes such as `organization.id` are flat evaluation-context
+keys on the wire, exactly as OpenFeature providers send them — never nested
+objects. Flag listing, audit reading, and OFREP bulk evaluation exist in the
+SaaS Reaper golden specimen but are not generated yet. Every publish still
+writes an append-only audit row; until an audit endpoint is generated, read the
+`audit` table directly in the selected database.
+
 ## Deployment
 
 The selected deployment material is under `deploy/{{.Recipe.Deployment.Target}}`.

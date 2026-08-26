@@ -2,7 +2,30 @@ package flags
 
 import "testing"
 
-func TestEvaluateUsesNestedDomainAttribute(t *testing.T) {
+func TestEvaluateUsesFlatDottedDomainAttribute(t *testing.T) {
+	flag := Flag{
+		Key:            "checkout-v2",
+		Kind:           Boolean,
+		Enabled:        true,
+		DefaultVariant: "off",
+		Variants:       map[string]any{"off": false, "on": true},
+		Rules:          []Rule{Rule{Attribute: "organization.id", Equals: "acme", Variant: "on"}},
+		Revision:       7,
+	}
+	context := map[string]any{
+		"targetingKey":    "demo-user",
+		"organization.id": "acme",
+	}
+	evaluation, err := Evaluate(flag, context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evaluation.Value != true || evaluation.Variant != "on" || evaluation.Reason != "TARGETING_MATCH" {
+		t.Fatalf("unexpected evaluation: %#v", evaluation)
+	}
+}
+
+func TestEvaluateIgnoresNestedContextShape(t *testing.T) {
 	flag := Flag{
 		Key:            "checkout-v2",
 		Kind:           Boolean,
@@ -20,8 +43,8 @@ func TestEvaluateUsesNestedDomainAttribute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if evaluation.Value != true || evaluation.Variant != "on" || evaluation.Reason != "TARGETING_MATCH" {
-		t.Fatalf("unexpected evaluation: %#v", evaluation)
+	if evaluation.Value != false || evaluation.Reason != "STATIC" {
+		t.Fatalf("nested context must not match the flat wire contract: %#v", evaluation)
 	}
 }
 

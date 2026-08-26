@@ -124,7 +124,7 @@ The OFREP base URL is environment-scoped:
 http://host:port/environments/{environment}
 ```
 
-The standard provider appends `/ofrep/v1/evaluate/flags/{key}`. Evaluation order is fixed:
+The standard provider appends `/ofrep/v1/evaluate/flags/{key}`. Dotted targeting attributes such as `organization.id` are flat evaluation-context keys on the wire, exactly as OpenFeature providers send them — never nested objects. Evaluation order is fixed:
 
 1. A disabled flag returns its default variant.
 2. Rules are checked in declaration order.
@@ -153,9 +153,16 @@ Creating requires revision `0`; updating requires the current revision. SQLite c
 
 The factory currently offers a CLI and a local browser configurator, not a
 hosted multi-user control plane. It generates Go, TypeScript, and Python service
-packs. The Go pack is intentionally smaller than the root golden specimen: it
+packs. Each pack is intentionally smaller than the root golden specimen: it
 keeps the same evaluation and revision policy without the golden specimen's
-separate in-memory read projection. Cloud templates are delivered for review
+separate in-memory read projection, and it serves only health, management
+publish, and OFREP single-flag evaluation. Flag listing, audit reading, and
+OFREP bulk evaluation remain specimen-only; the audit table is still written on
+every publish and the gap is recorded in `REAPER.yaml` and each generated
+README. The cross-language conformance harness in `make product-demo` drives
+the real OpenFeature Go, TypeScript, and Python clients against every generated
+SQLite service and fails on any divergence from the specimen's scenario table.
+Cloud templates are delivered for review
 but are never applied by Reaper. Managed PostgreSQL instances, domains,
 certificates, container registries, and secret values remain explicit customer
 inputs.

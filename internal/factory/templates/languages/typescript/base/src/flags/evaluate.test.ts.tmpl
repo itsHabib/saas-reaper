@@ -4,7 +4,7 @@ import test from "node:test";
 import { evaluate } from "./evaluate.ts";
 import { validateFlag, type Flag } from "./flag.ts";
 
-test("first matching domain rule wins", () => {
+test("first matching domain rule wins on the flat dotted attribute", () => {
   const flag: Flag = {
     key: "checkout-v2",
     kind: "boolean",
@@ -15,13 +15,29 @@ test("first matching domain rule wins", () => {
     revision: 3,
     updatedAt: "2026-01-01T00:00:00Z",
   };
-  assert.deepEqual(evaluate(flag, { targetingKey: "user-1", organization: { id: "acme" } }), {
+  assert.deepEqual(evaluate(flag, { targetingKey: "user-1", "organization.id": "acme" }), {
     key: "checkout-v2",
     value: true,
     reason: "TARGETING_MATCH",
     variant: "on",
     revision: 3,
   });
+});
+
+test("nested context shape does not match the flat wire contract", () => {
+  const flag: Flag = {
+    key: "checkout-v2",
+    kind: "boolean",
+    enabled: true,
+    defaultVariant: "off",
+    variants: { off: false, on: true },
+    rules: [{ attribute: "organization.id", equals: "acme", variant: "on" }],
+    revision: 3,
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+  const decision = evaluate(flag, { targetingKey: "user-1", organization: { id: "acme" } });
+  assert.equal(decision.value, false);
+  assert.equal(decision.reason, "STATIC");
 });
 
 test("missing targeting key is rejected", () => {

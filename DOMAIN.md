@@ -1,6 +1,6 @@
 # Domain adaptation record
 
-This specimen assumes a multi-tenant product whose customer boundary is an organization. The record is deliberately small: it names only concepts that currently affect flag behavior.
+This specimen assumes a multi-tenant product whose customer boundary is an organization. The record is deliberately small: it names only concepts that currently affect flag behavior. Dotted attribute names such as `organization.id` are flat evaluation-context keys on the wire, never nested objects.
 
 ## Vocabulary
 
@@ -20,7 +20,7 @@ This specimen assumes a multi-tenant product whose customer boundary is an organ
 
 ## Missing values
 
-- A missing or non-string `targetingKey` rejects the evaluation.
+- A missing, empty, or non-string `targetingKey` rejects the evaluation.
 - A missing optional rule attribute makes that rule fail to match; evaluation continues to the next rule or rollout/default.
 - A missing rollout attribute makes the rollout miss and returns the default variant.
 

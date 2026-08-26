@@ -43,7 +43,7 @@ curl --silent --fail --request PUT \
 result=$(curl --silent --fail --request POST \
   --header 'Authorization: Bearer demo-evaluation' \
   --header 'Content-Type: application/json' \
-  --data '{"context":{"targetingKey":"demo-user","organization":{"id":"acme"}}}' \
+  --data '{"context":{"targetingKey":"demo-user","organization.id":"acme"}}' \
   "http://127.0.0.1:$port/environments/production/ofrep/v1/evaluate/flags/checkout-v2")
 
 printf '%s' "$result" | jq -e '.value == true and .variant == "on" and .reason == "TARGETING_MATCH"' >/dev/null

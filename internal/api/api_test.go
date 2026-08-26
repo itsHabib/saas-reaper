@@ -130,6 +130,64 @@ func TestOFREPBulkEvaluationUsesETag(t *testing.T) {
 	closeResponse(t, second)
 }
 
+func TestOFREPBulkEvaluationETagVariesByContext(t *testing.T) {
+	server := newServer(t)
+	defer server.Close()
+	publishOrganizationRule(t, server.URL)
+	url := server.URL + "/environments/production/ofrep/v1/evaluate/flags"
+	first := doJSON(
+		t,
+		http.MethodPost,
+		url,
+		evaluationToken,
+		map[string]any{"context": map[string]any{"targetingKey": "user-9", "organization.id": "acme"}},
+		nil,
+	)
+	assertStatus(t, first, http.StatusOK)
+	etag := first.Header.Get("ETag")
+	closeResponse(t, first)
+	crossContext := doJSON(
+		t,
+		http.MethodPost,
+		url,
+		evaluationToken,
+		map[string]any{"context": map[string]any{"targetingKey": "user-9", "organization.id": "other"}},
+		map[string]string{"If-None-Match": etag},
+	)
+	assertStatus(t, crossContext, http.StatusOK)
+	var body struct {
+		Flags []struct {
+			Key   string `json:"key"`
+			Value any    `json:"value"`
+		} `json:"flags"`
+	}
+	decodeResponse(t, crossContext, &body)
+	if len(body.Flags) != 1 || body.Flags[0].Value != false {
+		t.Fatalf("cross-context bulk evaluation = %#v, want fresh false decision", body.Flags)
+	}
+}
+
+func publishOrganizationRule(t *testing.T, baseURL string) {
+	t.Helper()
+	body := map[string]any{
+		"expectedRevision": 0,
+		"flag": map[string]any{
+			"kind":           "boolean",
+			"enabled":        true,
+			"defaultVariant": "off",
+			"variants":       map[string]any{"off": false, "on": true},
+			"rules": []map[string]any{{
+				"attribute": "organization.id",
+				"equals":    "acme",
+				"variant":   "on",
+			}},
+		},
+	}
+	response := doJSON(t, http.MethodPut, baseURL+"/v1/environments/production/flags/checkout-v2", adminToken, body, nil)
+	assertStatus(t, response, http.StatusOK)
+	closeResponse(t, response)
+}
+
 func TestOFREPRejectsMissingTargetingKey(t *testing.T) {
 	server := newServer(t)
 	defer server.Close()

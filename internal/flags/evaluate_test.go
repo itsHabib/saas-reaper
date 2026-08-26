@@ -113,10 +113,28 @@ func TestValidateRejectsDomainAndShapeViolations(t *testing.T) {
 	}
 }
 
+func TestEvaluateIgnoresNestedContextShape(t *testing.T) {
+	flag := boolFlag()
+	flag.Rules = []Rule{{Attribute: "organization.id", Equals: "acme", Variant: "on"}}
+	context := map[string]any{
+		"targetingKey": "user-2",
+		"organization": map[string]any{"id": "acme"},
+	}
+	got, err := evaluate(flag, context)
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if got.Variant != "off" || got.Reason != "STATIC" {
+		t.Fatalf("nested context must not match the flat wire contract: %#v", got)
+	}
+}
+
 func TestEvaluateRequiresStringTargetingKey(t *testing.T) {
-	_, err := evaluate(boolFlag(), map[string]any{"targetingKey": 42})
-	if !errors.Is(err, ErrInvalid) {
-		t.Fatalf("got %v, want ErrInvalid", err)
+	for name, targetingKey := range map[string]any{"number": 42, "empty": ""} {
+		_, err := evaluate(boolFlag(), map[string]any{"targetingKey": targetingKey})
+		if !errors.Is(err, ErrInvalid) {
+			t.Fatalf("%s targetingKey: got %v, want ErrInvalid", name, err)
+		}
 	}
 }
 

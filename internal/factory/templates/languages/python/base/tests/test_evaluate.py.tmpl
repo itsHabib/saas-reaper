@@ -7,7 +7,27 @@ from reaper_flags.flags.flag import Flag, Rule, validate_flag
 
 
 class EvaluateTest(unittest.TestCase):
-    def test_first_matching_domain_rule_wins(self) -> None:
+    def test_first_matching_domain_rule_wins_on_flat_dotted_attribute(self) -> None:
+        flag = Flag(
+            key="checkout-v2",
+            kind="boolean",
+            enabled=True,
+            default_variant="off",
+            variants={"off": False, "on": True},
+            rules=(Rule(attribute="organization.id", equals="acme", variant="on"),),
+            revision=3,
+        )
+        decision = evaluate(
+            flag,
+            {
+                "targetingKey": "user-1",
+                "organization.id": "acme",
+            },
+        )
+        self.assertEqual(decision.value, True)
+        self.assertEqual(decision.reason, "TARGETING_MATCH")
+
+    def test_nested_context_shape_does_not_match_flat_wire_contract(self) -> None:
         flag = Flag(
             key="checkout-v2",
             kind="boolean",
@@ -24,8 +44,8 @@ class EvaluateTest(unittest.TestCase):
                 "organization": {"id": "acme"},
             },
         )
-        self.assertEqual(decision.value, True)
-        self.assertEqual(decision.reason, "TARGETING_MATCH")
+        self.assertEqual(decision.value, False)
+        self.assertEqual(decision.reason, "STATIC")
 
     def test_missing_targeting_key_is_rejected(self) -> None:
         flag = Flag(

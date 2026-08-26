@@ -30,28 +30,21 @@ export function evaluate(flag: Flag, context: Record<string, unknown>): Evaluati
 }
 
 function matches(rule: Rule, context: Record<string, unknown>): boolean {
-  return contextValue(context, rule.attribute) === rule.equals;
+  const value = context[rule.attribute];
+  if (typeof value !== "string") {
+    return false;
+  }
+  return value === rule.equals;
 }
 
 function inRollout(key: string, rollout: Rollout, context: Record<string, unknown>): boolean {
-  const value = contextValue(context, rollout.attribute);
+  const value = context[rollout.attribute];
   if (typeof value !== "string") {
     return false;
   }
   const digest = createHash("sha256").update(`${key}\0${value}`).digest();
   const bucket = digest.readBigUInt64BE(0) % 10_000n;
   return bucket < BigInt(rollout.percentage * 100);
-}
-
-function contextValue(context: Record<string, unknown>, attribute: string): unknown {
-  let current: unknown = context;
-  for (const segment of attribute.split(".")) {
-    if (!current || typeof current !== "object" || Array.isArray(current)) {
-      return undefined;
-    }
-    current = (current as Record<string, unknown>)[segment];
-  }
-  return current;
 }
 
 function resolve(flag: Flag, variant: string, reason: Evaluation["reason"]): Evaluation {

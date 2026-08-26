@@ -63,9 +63,9 @@ type deliveryPack struct {
 }
 
 var languagePacks = []pack{
-	newPack("go", "Go", "Small compiled service with explicit internal packages", "v2"),
-	newPack("typescript", "TypeScript", "Node.js service with strict TypeScript", "v2"),
-	newPack("python", "Python", "Python service with explicit policy boundaries", "v2"),
+	newPack("go", "Go", "Small compiled service with explicit internal packages", "v3"),
+	newPack("typescript", "TypeScript", "Node.js service with strict TypeScript", "v3"),
+	newPack("python", "Python", "Python service with explicit policy boundaries", "v3"),
 }
 
 var databasePacks = []databasePack{
