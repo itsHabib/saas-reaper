@@ -1,9 +1,24 @@
-# SaaS Reaper
+# SaaS Reaper ☠️
+
+> Every subscription has an expiration date. Yours is today.
+
+```text
+                ___
+               /   \
+              | ✝︎ ✝︎ |          _______________
+               \___/          |    R.I.P.     |
+             ___/ \___        |   per-seat    |
+            /  |   |  \       |    pricing    |
+               |   |          |_______________|
+              _|   |_       \|/ \|/  \|/ \|/ \|/
+```
 
 SaaS Reaper composes customer choices into a complete, customer-owned SaaS
-capability repository. This proof of concept now contains both sides of that
-product: the configurator/generator and the original Go feature-flags golden
-specimen used to establish the behavior and engineering boundary.
+capability repository — and then it walks away. The generated service does not
+call home, does not renew, and has no vendor left to outlive. This proof of
+concept contains both sides of that bargain: the configurator/generator and
+the original Go feature-flags golden specimen used to establish the behavior
+and engineering boundary.
 
 ## Generate a product
 
@@ -172,3 +187,8 @@ The generated capability does not yet include an admin UI, client-side/local
 evaluation, approvals, analytics, an identity provider, per-environment
 credential scopes, token rotation, or a general rule language. Those are
 post-proof product questions, not hidden promises.
+
+## License
+
+[MIT](LICENSE). The Reaper asks for nothing in return. It already took what
+it came for.
