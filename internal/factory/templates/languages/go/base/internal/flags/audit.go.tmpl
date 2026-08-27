@@ -1,0 +1,21 @@
+package flags
+
+import "time"
+
+// AuditEntry identifies one durable definition publication.
+type AuditEntry struct {
+	Sequence    int64     `json:"sequence"`
+	Environment string    `json:"environment"`
+	Key         string    `json:"key"`
+	Revision    int64     `json:"revision"`
+	Actor       string    `json:"actor"`
+	OccurredAt  time.Time `json:"occurredAt"`
+}
+
+// AuditLimit clamps a requested page size to the supported window.
+func AuditLimit(limit int) int {
+	if limit <= 0 || limit > 500 {
+		return 100
+	}
+	return limit
+}

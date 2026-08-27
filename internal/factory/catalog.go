@@ -63,18 +63,18 @@ type deliveryPack struct {
 }
 
 var languagePacks = []pack{
-	newPack("go", "Go", "Small compiled service with explicit internal packages", "v3"),
-	newPack("typescript", "TypeScript", "Node.js service with strict TypeScript", "v3"),
-	newPack("python", "Python", "Python service with explicit policy boundaries", "v3"),
+	newPack("go", "Go", "Small compiled service with explicit internal packages", "v4"),
+	newPack("typescript", "TypeScript", "Node.js service with strict TypeScript", "v4"),
+	newPack("python", "Python", "Python service with explicit policy boundaries", "v4"),
 }
 
 var databasePacks = []databasePack{
 	{
-		pack:   newPack("sqlite", "SQLite", "Single-instance embedded authority", "v2"),
+		pack:   newPack("sqlite", "SQLite", "Single-instance embedded authority", "v3"),
 		shared: false,
 	},
 	{
-		pack:   newPack("postgres", "PostgreSQL", "External production authority", "v2"),
+		pack:   newPack("postgres", "PostgreSQL", "External production authority", "v3"),
 		shared: true,
 	},
 }

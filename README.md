@@ -156,12 +156,13 @@ hosted multi-user control plane. It generates Go, TypeScript, and Python service
 packs. Each pack is intentionally smaller than the root golden specimen: it
 keeps the same evaluation and revision policy without the golden specimen's
 separate in-memory read projection, and it serves only health, management
-publish, and OFREP single-flag evaluation. Flag listing, audit reading, and
-OFREP bulk evaluation remain specimen-only; the audit table is still written on
-every publish and the gap is recorded in `REAPER.yaml` and each generated
-README. The cross-language conformance harness in `make product-demo` drives
-the real OpenFeature Go, TypeScript, and Python clients against every generated
-SQLite service and fails on any divergence from the specimen's scenario table.
+publish, the audit read, and OFREP single-flag evaluation. Flag listing and
+OFREP bulk evaluation remain specimen-only; the gap is recorded in
+`REAPER.yaml` and each generated README. The cross-language conformance
+harness in `make product-demo` drives the real OpenFeature Go, TypeScript, and
+Python clients against every generated SQLite service, checks the audit read
+and its token boundary, and fails on any divergence from the specimen's
+scenario table.
 Cloud templates are delivered for review
 but are never applied by Reaper. Managed PostgreSQL instances, domains,
 certificates, container registries, and secret values remain explicit customer

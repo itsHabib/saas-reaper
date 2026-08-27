@@ -67,14 +67,13 @@ The generated service intentionally exposes only:
 
 - `GET /healthz`
 - `PUT /v1/environments/{environment}/flags/{key}` — authenticated management publish
+- `GET /v1/audit?limit=100` — authenticated management read of the append-only publication audit, newest first
 - `POST /environments/{environment}/ofrep/v1/evaluate/flags/{key}` — authenticated OFREP single-flag evaluation
 
 Dotted targeting attributes such as `organization.id` are flat evaluation-context
 keys on the wire, exactly as OpenFeature providers send them — never nested
-objects. Flag listing, audit reading, and OFREP bulk evaluation exist in the
-SaaS Reaper golden specimen but are not generated yet. Every publish still
-writes an append-only audit row; until an audit endpoint is generated, read the
-`audit` table directly in the selected database.
+objects. Flag listing and OFREP bulk evaluation exist in the SaaS Reaper golden
+specimen but are not generated yet.
 
 ## Deployment
 

@@ -1,0 +1,30 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class AuditEntry:
+    sequence: int
+    environment: str
+    key: str
+    revision: int
+    actor: str
+    occurred_at: str
+
+
+def audit_limit(limit: int) -> int:
+    if limit <= 0 or limit > 500:
+        return 100
+    return limit
+
+
+def audit_record(entry: AuditEntry) -> dict[str, object]:
+    return {
+        "sequence": entry.sequence,
+        "environment": entry.environment,
+        "key": entry.key,
+        "revision": entry.revision,
+        "actor": entry.actor,
+        "occurredAt": entry.occurred_at,
+    }

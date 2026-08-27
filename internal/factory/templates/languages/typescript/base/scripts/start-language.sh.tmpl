@@ -2,4 +2,4 @@
 set -euo pipefail
 
 : "${1:?usage: start-language.sh WORK_DIR}"
-exec npm start
+exec node src/main.ts
