@@ -94,18 +94,18 @@ var deploymentPacks = []deploymentPack{
 		replicas:  ReplicaPolicy{Default: 1, Maximum: 1},
 	},
 	{
-		pack:           newPack("aws-ecs", "AWS ECS/Fargate", "Managed AWS container service with Terraform", "v3"),
+		pack:           newPack("aws-ecs", "AWS ECS/Fargate", "Managed AWS container service with Terraform", "v4"),
 		requiresShared: true,
 		databases:      []string{"postgres", "mongodb", "couchbase"},
 		replicas:       ReplicaPolicy{Default: 2},
 	},
 	{
-		pack:      newPack("aws-ec2", "AWS EC2", "Single virtual machine with Terraform and cloud-init", "v3"),
+		pack:      newPack("aws-ec2", "AWS EC2", "Single virtual machine with Terraform and cloud-init", "v4"),
 		databases: []string{"sqlite", "postgres", "mongodb", "couchbase"},
 		replicas:  ReplicaPolicy{Default: 1, Maximum: 1},
 	},
 	{
-		pack:           newPack("gcp-cloud-run", "GCP Cloud Run", "Managed GCP container service with Terraform", "v2"),
+		pack:           newPack("gcp-cloud-run", "GCP Cloud Run", "Managed GCP container service with Terraform", "v3"),
 		requiresShared: true,
 		databases:      []string{"postgres", "mongodb", "couchbase"},
 		replicas:       ReplicaPolicy{Default: 2},
