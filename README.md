@@ -2,16 +2,9 @@
 
 > Every subscription has an expiration date. Yours is today.
 
-```text
-                ___
-               /   \
-              | ✝︎ ✝︎ |          _______________
-               \___/          |    R.I.P.     |
-             ___/ \___        |   per-seat    |
-            /  |   |  \       |    pricing    |
-               |   |          |_______________|
-              _|   |_       \|/ \|/  \|/ \|/ \|/
-```
+<p align="center">
+  <img src="docs/assets/reaper.svg" alt="The SaaS Reaper holds a scythe and a green feature flag beside a tombstone reading R.I.P. per-seat pricing" width="560">
+</p>
 
 SaaS Reaper composes customer choices into a complete, customer-owned SaaS
 capability repository — and then it walks away. The generated service does not
