@@ -37,16 +37,17 @@ go run ./cmd/reaper generate \
   --out /tmp/acme-flags
 ```
 
-The customer chooses Go, TypeScript, or Python; SQLite, PostgreSQL, or
-MongoDB; a deployment pack; and directory/ZIP delivery. Reaper validates compatibility,
-renders only the selected mechanisms, and returns an independent repository
+The customer chooses Go, TypeScript, or Python; SQLite, PostgreSQL, MongoDB,
+or Couchbase; a deployment pack; and directory/ZIP delivery. Reaper validates
+compatibility, renders only the selected mechanisms, and returns an independent repository
 containing the service, infrastructure, `AGENTS.md`, `CLAUDE.md`, `DOMAIN.md`,
 `WORK.md`, skills, receipt, checks, and demo. Generation never provisions
 infrastructure and generated services do not call home.
 
 Supported deployment packs are Docker Compose, AWS ECS/Fargate, AWS EC2, GCP
 Cloud Run, and Kubernetes/Kustomize. Managed and multi-replica targets require
-a shared authority (PostgreSQL or MongoDB); unsafe SQLite combinations are
+a shared authority (PostgreSQL, MongoDB, or Couchbase); unsafe SQLite
+combinations are
 rejected before rendering.
 
 Run the factory proof:
