@@ -6,6 +6,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from reaper_flags.flags.audit import AuditEntry
 from reaper_flags.flags.flag import Flag, from_record, publish_revision, to_record
 from reaper_flags.flags.revision import RevisionConflict
 
@@ -99,6 +100,25 @@ class SqliteAuthority:
                 ),
             )
         return published
+
+    def audit(self, limit: int) -> list[AuditEntry]:
+        with self.lock:
+            rows = self.connection.execute(
+                "SELECT sequence, environment, key, revision, actor, occurred_at"
+                " FROM audit ORDER BY sequence DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            AuditEntry(
+                sequence=int(row["sequence"]),
+                environment=str(row["environment"]),
+                key=str(row["key"]),
+                revision=int(row["revision"]),
+                actor=str(row["actor"]),
+                occurred_at=str(row["occurred_at"]),
+            )
+            for row in rows
+        ]
 
     def close(self) -> None:
         self.connection.close()

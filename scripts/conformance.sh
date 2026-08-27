@@ -111,4 +111,38 @@ run_scenario user-2 acme true on TARGETING_MATCH
 run_scenario user-1 other true on SPLIT
 run_scenario user-2 other false off STATIC
 
+audit=$(curl --silent --fail \
+  --header "Authorization: Bearer $admin_token" \
+  "$base_url/v1/audit?limit=5")
+jq -e '
+  .audit | length == 1
+    and .[0].key == "checkout-v2"
+    and .[0].actor == "conformance"
+    and .[0].revision == 1
+' <<< "$audit" > /dev/null
+
+denied=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --header "Authorization: Bearer $evaluation_token" \
+  "$base_url/v1/audit")
+if [[ "$denied" != 401 ]]; then
+  echo "generated $language service must reject evaluation-token audit reads (got $denied)" >&2
+  exit 1
+fi
+
+malformed=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --header "Authorization: Bearer $admin_token" \
+  "$base_url/v1/audit?limit=abc")
+if [[ "$malformed" != 400 ]]; then
+  echo "generated $language service must reject a non-integer audit limit (got $malformed)" >&2
+  exit 1
+fi
+
+empty_limit=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --header "Authorization: Bearer $admin_token" \
+  "$base_url/v1/audit?limit=")
+if [[ "$empty_limit" != 200 ]]; then
+  echo "generated $language service must default an empty audit limit (got $empty_limit)" >&2
+  exit 1
+fi
+
 echo "conformance: generated $language service matched the OpenFeature scenario table"

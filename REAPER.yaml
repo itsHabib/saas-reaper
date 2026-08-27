@@ -77,5 +77,4 @@ excluded:
   - per-environment-token-scope
   - tls-termination
   - generated-management-read-api
-  - generated-audit-read-api
   - generated-bulk-evaluation

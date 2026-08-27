@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from reaper_flags.flags.audit import AuditEntry
 from reaper_flags.flags.flag import Flag
 
 
@@ -17,5 +18,7 @@ class FlagAuthority(Protocol):
         expected_revision: int,
         actor: str,
     ) -> Flag: ...
+
+    def audit(self, limit: int) -> list[AuditEntry]: ...
 
     def close(self) -> None: ...

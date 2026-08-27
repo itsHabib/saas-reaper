@@ -1,9 +1,19 @@
 import pg from "pg";
 
+import type { AuditEntry } from "../flags/audit.ts";
 import type { Flag } from "../flags/flag.ts";
 import { RevisionConflict } from "../flags/revision.ts";
 
 const { Pool } = pg;
+
+interface StoredAudit {
+  sequence: string;
+  environment: string;
+  key: string;
+  revision: string;
+  actor: string;
+  occurred_at: Date;
+}
 
 export function openAuthority(): PostgresAuthority {
   const connectionString = process.env.DATABASE_URL;
@@ -86,6 +96,21 @@ export class PostgresAuthority {
     } finally {
       client.release();
     }
+  }
+
+  async audit(limit: number): Promise<AuditEntry[]> {
+    const result = await this.#pool.query<StoredAudit>(
+      "SELECT sequence, environment, key, revision, actor, occurred_at FROM audit ORDER BY sequence DESC LIMIT $1",
+      [limit],
+    );
+    return result.rows.map((row) => ({
+      sequence: Number(row.sequence),
+      environment: row.environment,
+      key: row.key,
+      revision: Number(row.revision),
+      actor: row.actor,
+      occurredAt: new Date(row.occurred_at).toISOString(),
+    }));
   }
 
   async close(): Promise<void> {

@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import { auditLimit } from "../flags/audit.ts";
 import { evaluate } from "../flags/evaluate.ts";
 import { validateFlag } from "../flags/flag.ts";
 import { RevisionConflict } from "../flags/revision.ts";
@@ -23,6 +24,10 @@ export function routes(authority: FlagAuthority, configuration: Configuration) {
         return;
       }
       const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+      if (request.method === "GET" && pathname === "/v1/audit") {
+        await audit(request, response, authority, configuration);
+        return;
+      }
       const management = pathname.match(managementPath);
       if (request.method === "PUT" && management) {
         await publish(request, response, authority, configuration, management[1] ?? "", management[2] ?? "");
@@ -105,6 +110,33 @@ async function resolve(
     variant: decision.variant,
     metadata: { revision: decision.revision },
   });
+}
+
+async function audit(
+  request: IncomingMessage,
+  response: ServerResponse,
+  authority: FlagAuthority,
+  configuration: Configuration,
+): Promise<void> {
+  if (!authorized(request, configuration.adminToken)) {
+    write(response, 401, { error: "unauthorized" });
+    return;
+  }
+  const raw = new URL(request.url ?? "/", "http://localhost").searchParams.get("limit");
+  let limit = 100;
+  if (raw !== null && raw !== "") {
+    if (!/^-?\d+$/.test(raw)) {
+      write(response, 400, { error: "limit must be an integer" });
+      return;
+    }
+    limit = Number(raw);
+  }
+  try {
+    const entries = await authority.audit(auditLimit(limit));
+    write(response, 200, { audit: entries });
+  } catch {
+    write(response, 500, { error: "read audit" });
+  }
 }
 
 function authorized(request: IncomingMessage, expected: string): boolean {

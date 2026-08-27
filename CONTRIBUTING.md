@@ -74,9 +74,10 @@ Adding only a catalog entry or only a directory fails locally and in CI.
 The v0 automation proves registration, compatibility, deterministic rendering,
 compilation, delivery, and representative live evaluation. Evaluation semantics
 now have one cross-language conformance harness: `scripts/conformance.sh`,
-wired into the product demo, boots every generated SQLite service and drives
+wired into the product demo, boots every generated SQLite service, drives
 the real OpenFeature Go, TypeScript, and Python clients through the specimen's
-scenario table, so a new language pack must pass it unchanged. There is still
+scenario table, and checks the audit read and its token boundary, so a new
+language pack must pass it unchanged. There is still
 no shared behavioral harness for every store/API invariant. A new language or
 database must therefore add pack-specific evidence for stale revisions,
 concurrent creation, restart durability, atomic audit writes, authentication

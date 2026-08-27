@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"example.com/{{.Recipe.Name}}/internal/flags"
@@ -19,6 +20,7 @@ const maxRequestBytes = 1 << 20
 type Authority interface {
 	Load(context.Context, string, string) (flags.Flag, error)
 	Publish(context.Context, string, flags.Flag, int64, string) (flags.Flag, error)
+	Audit(context.Context, int) ([]flags.AuditEntry, error)
 }
 
 type Configuration struct {
@@ -67,6 +69,7 @@ func (s *Server) Handler() http.Handler {
 		"PUT /v1/environments/{environment}/flags/{key}",
 		s.authorize(s.configuration.AdminToken, s.publish),
 	)
+	mux.HandleFunc("GET /v1/audit", s.authorize(s.configuration.AdminToken, s.audit))
 	mux.HandleFunc(
 		"POST /environments/{environment}/ofrep/v1/evaluate/flags/{key}",
 		s.authorize(s.configuration.EvaluationToken, s.evaluate),
@@ -150,6 +153,24 @@ func (s *Server) evaluate(w http.ResponseWriter, r *http.Request) {
 		"variant":  evaluation.Variant,
 		"metadata": map[string]int64{"revision": evaluation.Revision},
 	})
+}
+
+func (s *Server) audit(w http.ResponseWriter, r *http.Request) {
+	limit := 100
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "limit must be an integer"})
+			return
+		}
+		limit = parsed
+	}
+	entries, err := s.authority.Audit(r.Context(), flags.AuditLimit(limit))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "read audit"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"audit": entries})
 }
 
 func (s *Server) authorize(token string, next http.HandlerFunc) http.HandlerFunc {

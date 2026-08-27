@@ -1,8 +1,10 @@
+import type { AuditEntry } from "../flags/audit.ts";
 import type { Flag } from "../flags/flag.ts";
 
 export interface FlagAuthority {
   initialize(): Promise<void>;
   load(environment: string, key: string): Promise<Flag | undefined>;
   publish(environment: string, flag: Flag, expectedRevision: number, actor: string): Promise<Flag>;
+  audit(limit: number): Promise<AuditEntry[]>;
   close(): Promise<void>;
 }

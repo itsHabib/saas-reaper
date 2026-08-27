@@ -47,4 +47,23 @@ result=$(curl --silent --fail --request POST \
   "http://127.0.0.1:$port/environments/production/ofrep/v1/evaluate/flags/checkout-v2")
 
 printf '%s' "$result" | jq -e '.value == true and .variant == "on" and .reason == "TARGETING_MATCH"' >/dev/null
+
+audit=$(curl --silent --fail \
+  --header 'Authorization: Bearer demo-admin' \
+  "http://127.0.0.1:$port/v1/audit?limit=5")
+printf '%s' "$audit" | jq -e '
+  .audit | length == 1
+    and .[0].key == "checkout-v2"
+    and .[0].actor == "demo-operator"
+    and .[0].revision == 1
+' >/dev/null
+
+denied=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --header 'Authorization: Bearer demo-evaluation' \
+  "http://127.0.0.1:$port/v1/audit")
+if [[ "$denied" != 401 ]]; then
+  echo "evaluation token must not read audit (got $denied)" >&2
+  exit 1
+fi
+
 echo "generated {{.Recipe.Service.Language}}/{{.Recipe.Database.Authority}} service demo passed"

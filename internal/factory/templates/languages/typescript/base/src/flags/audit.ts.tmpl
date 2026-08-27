@@ -1,0 +1,15 @@
+export interface AuditEntry {
+  sequence: number;
+  environment: string;
+  key: string;
+  revision: number;
+  actor: string;
+  occurredAt: string;
+}
+
+export function auditLimit(limit: number): number {
+  if (!Number.isInteger(limit) || limit <= 0 || limit > 500) {
+    return 100;
+  }
+  return limit;
+}

@@ -1,11 +1,21 @@
 import { DatabaseSync } from "node:sqlite";
 
+import type { AuditEntry } from "../flags/audit.ts";
 import type { Flag } from "../flags/flag.ts";
 import { RevisionConflict } from "../flags/revision.ts";
 
 interface StoredFlag {
   definition: string;
   revision: number;
+}
+
+interface StoredAudit {
+  sequence: number;
+  environment: string;
+  key: string;
+  revision: number;
+  actor: string;
+  occurred_at: string;
 }
 
 export function openAuthority(): SqliteAuthority {
@@ -75,6 +85,22 @@ export class SqliteAuthority {
       this.#database.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  async audit(limit: number): Promise<AuditEntry[]> {
+    const rows = this.#database
+      .prepare(
+        "SELECT sequence, environment, key, revision, actor, occurred_at FROM audit ORDER BY sequence DESC LIMIT ?",
+      )
+      .all(limit) as unknown as StoredAudit[];
+    return rows.map((row) => ({
+      sequence: Number(row.sequence),
+      environment: row.environment,
+      key: row.key,
+      revision: Number(row.revision),
+      actor: row.actor,
+      occurredAt: row.occurred_at,
+    }));
   }
 
   async close(): Promise<void> {
