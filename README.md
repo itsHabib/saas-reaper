@@ -173,11 +173,13 @@ keeps the same evaluation and revision policy without the golden specimen's
 separate in-memory read projection, and it serves only health, management
 publish, the audit read, and OFREP single-flag evaluation. Flag listing and
 OFREP bulk evaluation remain specimen-only; the gap is recorded in
-`REAPER.yaml` and each generated README. The cross-language conformance
-harness in `make product-demo` drives the real OpenFeature Go, TypeScript, and
-Python clients against every generated SQLite service, checks the audit read
-and its token boundary, and fails on any divergence from the specimen's
-scenario table.
+`REAPER.yaml` and each generated README. Two cross-language harnesses in
+`make product-demo` guard every generated SQLite service: one drives the real
+OpenFeature Go, TypeScript, and Python clients through the specimen's scenario
+table and the audit read, the other proves the store and API invariants
+black-box — stale-revision rejection, one winner under concurrent creation,
+authentication separation, one audit row per publish, and survival of
+definitions and audit across a service restart.
 Cloud templates are delivered for review
 but are never applied by Reaper. Managed PostgreSQL instances, domains,
 certificates, container registries, and secret values remain explicit customer

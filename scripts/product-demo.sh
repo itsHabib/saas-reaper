@@ -42,6 +42,7 @@ REAPER_ADMIN_TOKEN=demo-admin \
   docker compose -f "$work_dir/go-local/deploy/docker/compose.yaml" config --quiet
 make -C "$work_dir/go-local" setup check demo
 bash scripts/conformance.sh "$work_dir/go-local" go 18091
+bash scripts/invariants.sh "$work_dir/go-local" go 18094
 
 "$work_dir/reaper" generate \
   --recipe recipes/typescript-sqlite-docker.yaml \
@@ -56,12 +57,14 @@ REAPER_ADMIN_TOKEN=demo-admin \
   docker compose -f "$work_dir/typescript-one/deploy/docker/compose.yaml" config --quiet
 make -C "$work_dir/typescript-one" setup check demo
 bash scripts/conformance.sh "$work_dir/typescript-one" typescript 18092
+bash scripts/invariants.sh "$work_dir/typescript-one" typescript 18095
 
 "$work_dir/reaper" generate \
   --recipe recipes/python-sqlite-docker.yaml \
   --out "$work_dir/python-local" > /dev/null
 make -C "$work_dir/python-local" setup check demo
 bash scripts/conformance.sh "$work_dir/python-local" python 18093
+bash scripts/invariants.sh "$work_dir/python-local" python 18096
 
 "$work_dir/reaper" generate \
   --recipe recipes/typescript-postgres-docker.yaml \

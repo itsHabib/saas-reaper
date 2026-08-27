@@ -72,18 +72,21 @@ The executable contract lives in
 Adding only a catalog entry or only a directory fails locally and in CI.
 
 The v0 automation proves registration, compatibility, deterministic rendering,
-compilation, delivery, and representative live evaluation. Evaluation semantics
-now have one cross-language conformance harness: `scripts/conformance.sh`,
-wired into the product demo, boots every generated SQLite service, drives
-the real OpenFeature Go, TypeScript, and Python clients through the specimen's
-scenario table, and checks the audit read and its token boundary, so a new
-language pack must pass it unchanged. There is still
-no shared behavioral harness for every store/API invariant. A new language or
-database must therefore add pack-specific evidence for stale revisions,
-concurrent creation, restart durability, atomic audit writes, authentication
-separation, and rollout hashing. Extending the conformance harness to those
-invariants is the next extension milestone; do not describe the structural
-matrix plus evaluation conformance as complete semantic proof.
+compilation, delivery, and representative live evaluation. Two cross-language
+harnesses run inside the product demo against every generated SQLite service:
+`scripts/conformance.sh` drives the real OpenFeature Go, TypeScript, and
+Python clients through the specimen's scenario table and checks the audit
+read with its token boundary, and `scripts/invariants.sh` proves the store
+and API invariants black-box — stale-revision rejection, exactly one winner
+under concurrent creation, authentication separation in both directions, one
+audit row per successful publish, and definition plus audit survival across a
+service restart on the same database. A new language pack must pass both
+unchanged. Databases that cannot run in the demo (today: PostgreSQL) still
+need white-box pack evidence such as the concurrent-create INSERT/UPDATE
+contract test; running the same black-box probes against container-backed
+stores is the next extension milestone. Do not describe the structural matrix
+plus these harnesses as complete semantic proof for a store the demo never
+boots.
 
 Each rendered path has exactly one owning layer. The renderer rejects collisions
 instead of letting a later database or deployment pack silently overwrite a

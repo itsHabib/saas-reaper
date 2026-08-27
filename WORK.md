@@ -1,68 +1,66 @@
 <!-- reaper-work:v1 -->
-# Work: Generated audit-read endpoint
+# Work: Store invariant harness
 
-Work-ID: generated-audit-read
+Work-ID: store-invariant-harness
 Status: done
-Subject: git:9f3df8f7be5f8f8bee8a5d3f9597a98a52c99ce0
+Subject: git:761df689a09d634ae3cc7f60f8397def887eb117
 Stop-at: reviewed-change
 
 ## Outcome
 
-Every generated Go, TypeScript, and Python service serves its append-only
-publication audit over `GET /v1/audit` behind the management token, with the
-same clamp, ordering, and wire shape as the golden specimen, proven live by the
-demo and the conformance harness.
+Every generated SQLite service is proven black-box, in the product demo, to
+hold the store and API invariants the contribution contract lists: stale
+revisions rejected, exactly one winner under concurrent creation, tokens
+separated in both directions, one audit row per successful publish, and
+definitions plus audit surviving a service restart on the same database.
 
 ## Preserve
 
-- Publish and its audit row stay one transaction; the read never mutates.
-- Management and evaluation tokens stay separate; an evaluation token can
-  never read the audit.
-- Postgres publish keeps the concurrent-create INSERT/UPDATE split.
-- Deterministic generation, byte-identical `AGENTS.md`/`CLAUDE.md`, and the
-  flat evaluation-context contract are untouched.
+- Templates and generated output unchanged; no factory or pack version moves.
+- The conformance harness and its scenario table stay as they are.
+- PostgreSQL packs remain compile-only in the demo with their white-box
+  concurrent-create contract test.
 
 ## Change
 
-- `internal/factory/templates/languages/go/base/internal/flags/audit.go.tmpl`: AuditEntry and the limit clamp; TypeScript and Python flags packages mirror it.
-- `internal/factory/templates/languages/go/base/internal/api/routes.go.tmpl`: audit route, handler, and Authority extension; TypeScript and Python routes and protocols mirror it.
-- `internal/factory/templates/languages/go/sqlite/internal/store/sqlite/sqlite.go.tmpl`: newest-first audit query; the postgres store and both TypeScript and Python stores mirror it.
-- `internal/factory/templates/common/scripts/demo.sh.tmpl`: demo reads the audit and proves the evaluation token is rejected.
-- `scripts/conformance.sh`: harness asserts the audit entry and the 401 boundary against every generated SQLite service.
-- `internal/factory/templates/languages/typescript/base/scripts/start-language.sh.tmpl`: exec node directly so a stop signal reaches the service and the demo port drains.
-- `.github/workflows/ci.yml`: full-history checkouts so the work-contract validator resolves its git subject in CI; secret scan may list pull-request commits.
-- `.gitleaks.toml`: allow the demo template's throwaway bearer values where the curl rule anchors its match on the invocation line.
-- `internal/factory/render.go`: factory version 0.6.0; language packs v4 and database packs v3 in `catalog.go`.
-- `README.md`: honest boundary narrows to listing and bulk; `REAPER.yaml`, `CONTRIBUTING.md`, and the generated README template record the served audit read.
+- `scripts/invariants.sh`: boots one generated service, probes the revision,
+  authority, and audit invariants, then restarts it on the same database and
+  re-verifies.
+- `scripts/product-demo.sh`: runs the invariant harness against every
+  generated SQLite service after conformance.
+- `CONTRIBUTING.md`: records the two harnesses and narrows the remaining
+  milestone to container-backed stores.
+- `README.md`: honest boundary describes both harnesses.
 
 ## Prove
 
 - Green: `make check` passes lint, race tests, boundaries, and domain controls.
-- Green: `make product-demo` passes; every generated SQLite demo and the
-  conformance harness read back exactly one audit entry with the configured
-  actor and revision 1.
-- Red: an evaluation token on `GET /v1/audit` receives 401 in every generated
-  service; demo and harness both assert it.
-- Red: a non-integer limit receives 400 and an empty limit falls back to the
-  default in every generated service; the harness asserts both.
+- Green: `make product-demo` passes with three conformance and three
+  invariant-harness runs.
+- Red: a stale expectedRevision receives 409; the losing concurrent creator
+  receives 409; an evaluation token cannot publish and a management token
+  cannot evaluate; the harness fails the run if any of these succeed.
+- Red: a restart that loses the published definition or any audit row fails
+  the harness.
 
 ## Stop
 
-- Stop before adding flag listing, bulk evaluation, filtering, or pagination
-  beyond the single limit clamp.
-- Stop if the read would require schema changes to the audit table.
+- Stop before booting docker-backed stores in the demo; that is the next
+  milestone, not this one.
+- Stop before adding new endpoints, flag kinds, or template changes.
 
 ## Evidence
 
 - Verified: `make check` green at this head.
-- Verified: `make product-demo` green, including audit assertions in three
-  generated demos and three conformance runs.
-- Verified: TypeScript and Python postgres packs type-check the new store
-  method through the generated `make check` matrix.
+- Verified: `make product-demo` green, including invariant runs for the Go,
+  TypeScript, and Python SQLite services.
+- Verified: each invariant probe was exercised standalone against freshly
+  generated services before wiring into the demo.
 
 ## Handoff
 
-- Last: factory 0.6.0 serves the generated audit read with token separation
-  proven across all three language packs.
-- Next: extend the conformance harness toward store and API invariants such as
-  stale revisions, restart durability, and concurrent creation.
+- Last: the product demo now proves evaluation semantics and store/API
+  invariants for the live-runnable family.
+- Next: choose the first NoSQL authority (DynamoDB via LocalStack, MongoDB,
+  or Couchbase in docker) and run these same probes against it; Aurora
+  PostgreSQL already works through the existing postgres pack.
