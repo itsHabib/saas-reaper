@@ -54,8 +54,8 @@ export class CouchbaseAuthority {
   }
 
   async initialize(): Promise<void> {
-    const username = this.#endpoint.username || process.env.COUCHBASE_USERNAME;
-    const password = this.#endpoint.password || process.env.COUCHBASE_PASSWORD;
+    const username = decodeURIComponent(this.#endpoint.username) || process.env.COUCHBASE_USERNAME;
+    const password = decodeURIComponent(this.#endpoint.password) || process.env.COUCHBASE_PASSWORD;
     if (!username || !password) {
       throw new Error(
         "couchbase credentials are required in DATABASE_URL or COUCHBASE_USERNAME and COUCHBASE_PASSWORD",

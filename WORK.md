@@ -70,7 +70,8 @@ Couchbase container.
 - Verified: `make product-demo` green with couchbase compose validation and
   setup-plus-check for the go, typescript, and python couchbase repos.
 - Verified: local Couchbase container runs green — invariants for generated
-  go, typescript, and python services and conformance for go.
+  go, typescript, and python services, conformance for go, and
+  `DATABASE_URL=... make demo` for the generated go repository.
 
 ## Handoff
 

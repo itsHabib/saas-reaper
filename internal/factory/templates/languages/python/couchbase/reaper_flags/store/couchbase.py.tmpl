@@ -4,7 +4,7 @@ import contextlib
 import os
 import time
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from couchbase.auth import PasswordAuthenticator  # type: ignore[import-untyped]
 from couchbase.cluster import Cluster  # type: ignore[import-untyped]
@@ -58,8 +58,12 @@ class CouchbaseAuthority:
             raise ValueError(
                 f"connection string scheme {endpoint.scheme!r} is not couchbase or couchbases"
             )
-        self.username = endpoint.username or os.environ.get("COUCHBASE_USERNAME") or ""
-        self.password = endpoint.password or os.environ.get("COUCHBASE_PASSWORD") or ""
+        self.username = (
+            unquote(endpoint.username or "") or os.environ.get("COUCHBASE_USERNAME") or ""
+        )
+        self.password = (
+            unquote(endpoint.password or "") or os.environ.get("COUCHBASE_PASSWORD") or ""
+        )
         if not self.username or not self.password:
             raise ValueError(
                 "couchbase credentials are required in DATABASE_URL"
@@ -83,7 +87,7 @@ class CouchbaseAuthority:
         )
         self._ensure_bucket(deadline)
         self.bucket = self.cluster.bucket(self.bucket_name)
-        self._ensure_collections()
+        self._ensure_collections(deadline)
         self._ensure_primary_index(deadline)
 
     def _ensure_bucket(self, deadline: float) -> None:
@@ -104,13 +108,35 @@ class CouchbaseAuthority:
                     raise
                 time.sleep(1.0)
 
-    def _ensure_collections(self) -> None:
+    def _ensure_collections(self, deadline: float) -> None:
         manager = self.bucket.collections()
+        self._retry_until(deadline, lambda: self._create_scope(manager))
+        for collection in (FLAGS_COLLECTION, COUNTERS_COLLECTION):
+            self._retry_until(
+                deadline,
+                lambda name=collection: self._create_collection(manager, name),
+            )
+
+    @staticmethod
+    def _create_scope(manager: Any) -> None:
         with contextlib.suppress(ScopeAlreadyExistsException):
             manager.create_scope(SCOPE_NAME)
-        for collection in (FLAGS_COLLECTION, COUNTERS_COLLECTION):
-            with contextlib.suppress(CollectionAlreadyExistsException):
-                manager.create_collection(SCOPE_NAME, collection)
+
+    @staticmethod
+    def _create_collection(manager: Any, name: str) -> None:
+        with contextlib.suppress(CollectionAlreadyExistsException):
+            manager.create_collection(SCOPE_NAME, name)
+
+    @staticmethod
+    def _retry_until(deadline: float, operation: Any) -> None:
+        while True:
+            try:
+                operation()
+                return
+            except CouchbaseException:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(1.0)
 
     def _ensure_primary_index(self, deadline: float) -> None:
         statement = (
