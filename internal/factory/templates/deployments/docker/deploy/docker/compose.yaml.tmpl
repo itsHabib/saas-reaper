@@ -18,6 +18,12 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+{{end}}{{if eq .Recipe.Database.Authority "couchbase"}}      DATABASE_URL: couchbase://couchbase/reaper
+      COUCHBASE_USERNAME: ${COUCHBASE_USERNAME:-reaper}
+      COUCHBASE_PASSWORD: ${COUCHBASE_PASSWORD:-reaper-local}
+    depends_on:
+      couchbase-init:
+        condition: service_completed_successfully
 {{end}}    ports:
       - "8080:8080"
 {{if eq .Recipe.Database.Authority "postgres"}}  postgres:
@@ -43,10 +49,43 @@ services:
       retries: 30
     volumes:
       - mongodb-data:/data/db
+{{end}}{{if eq .Recipe.Database.Authority "couchbase"}}  couchbase:
+    image: couchbase:community-7.6.2
+    healthcheck:
+      test: ["CMD-SHELL", "curl --silent --fail http://127.0.0.1:8091/pools > /dev/null"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+    volumes:
+      - couchbase-data:/opt/couchbase/var
+  couchbase-init:
+    image: couchbase:community-7.6.2
+    depends_on:
+      couchbase:
+        condition: service_healthy
+    environment:
+      COUCHBASE_USERNAME: ${COUCHBASE_USERNAME:-reaper}
+      COUCHBASE_PASSWORD: ${COUCHBASE_PASSWORD:-reaper-local}
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        set -euo pipefail
+        if couchbase-cli server-list --cluster couchbase:8091 \
+          --username "$$COUCHBASE_USERNAME" --password "$$COUCHBASE_PASSWORD" > /dev/null 2>&1; then
+          echo "couchbase cluster is already initialized"
+          exit 0
+        fi
+        couchbase-cli cluster-init --cluster couchbase:8091 \
+          --services data,index,query \
+          --cluster-ramsize 512 \
+          --cluster-index-ramsize 256 \
+          --cluster-username "$$COUCHBASE_USERNAME" \
+          --cluster-password "$$COUCHBASE_PASSWORD" \
+          --cluster-name reaper
 {{end}}
-
 volumes:
 {{if eq .Recipe.Database.Authority "sqlite"}}  reaper-data:
 {{end}}{{if eq .Recipe.Database.Authority "postgres"}}  postgres-data:
 {{end}}{{if eq .Recipe.Database.Authority "mongodb"}}  mongodb-data:
+{{end}}{{if eq .Recipe.Database.Authority "couchbase"}}  couchbase-data:
 {{end}}

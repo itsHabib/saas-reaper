@@ -1,65 +1,79 @@
 <!-- reaper-work:v1 -->
-# Work: MongoDB database pack
+# Work: Couchbase database pack
 
-Work-ID: mongodb-database-pack
+Work-ID: couchbase-database-pack
 Status: active
 Subject: git:a9258ba86b4248aeb4990f3f8c88ca052db566ec
 Stop-at: reviewed-change
 
 ## Outcome
 
-The catalog offers MongoDB as a shared database authority: every language pack
-gains a mongodb store that preserves optimistic revisions, insert-only
-concurrent creation, and one-transaction definition-plus-audit publishes, and
-the docker deployment runs it as a single-node replica set.
+The factory catalogs a shared `couchbase` database authority with template
+packs for Go, TypeScript, and Python that preserve optimistic revisions,
+insert-based concurrent creation, atomic definition-plus-audit publication,
+and restart durability, proven by the render matrix, the compose validation,
+and the black-box invariant and conformance harnesses against a local
+Couchbase container.
 
 ## Preserve
 
-- Evaluation order, rollout hashing, reason mapping, and the OFREP surface.
-- SQLite and PostgreSQL packs and their harness results, byte for byte.
-- Root `AGENTS.md` and `CLAUDE.md` byte-identical and unchanged.
-- Deterministic rendering and refusal to overwrite existing destinations.
+- SQLite and PostgreSQL packs, evaluation semantics, and API behavior stay
+  byte-identical apart from pack-version metadata.
+- The conformance and invariant harnesses stay unchanged; Couchbase must pass
+  them as-is.
+- Root `AGENTS.md` and `CLAUDE.md` remain byte-identical and untouched.
 
 ## Change
 
-- `internal/factory/catalog.go`: mongodb databasePacks row (shared, v1) and
-  deployment compatibility everywhere postgres is accepted.
-- `internal/factory/templates/languages/go/mongodb/`: store, go.mod, go.sum.
-- `internal/factory/templates/languages/typescript/mongodb/`: store, package.json.
-- `internal/factory/templates/languages/python/mongodb/`: store, requirements.
-- `internal/factory/templates/deployments/docker/deploy/docker/compose.yaml.tmpl`: replica-set mongodb service branch.
-- `internal/factory/contract_test.go`: mongodb concurrent-create contract test.
-- `internal/factory/render.go`: FactoryVersion 0.7.0.
-- `scripts/product-demo.sh`: mongodb catalog assertion plus compile/check run.
-- `recipes/go-mongodb-docker.yaml`: representative recipe.
-- `docs/mongodb-live-proof.md`: container-backed harness recipe.
-- `REAPER.yaml`: factory databases gain mongodb.
+- `internal/factory/catalog.go`: register the shared `couchbase` pack, add it
+  to every deployment carrying postgres, bump docker and aws-ec2 packs.
+- `internal/factory/templates/languages/go/couchbase/`: Go store pack with
+  gocb v2 and pinned manifests.
+- `internal/factory/templates/languages/typescript/couchbase/`: TypeScript
+  store pack with the couchbase SDK.
+- `internal/factory/templates/languages/python/couchbase/`: Python store pack
+  with the couchbase SDK.
+- `internal/factory/templates/deployments/docker/`: couchbase compose service
+  plus one-shot cluster-init.
+- `internal/factory/templates/deployments/aws-ec2/`: shared authorities use
+  the database-url secret branch.
+- `internal/factory/contract_test.go`: pin the insert/exists-error conflict
+  markers for all three couchbase stores.
+- `internal/factory/render.go`: bump `FactoryVersion`.
+- `REAPER.yaml`: catalog gains couchbase.
+- `recipes/`: go, typescript, and python couchbase-docker recipes.
+- `scripts/product-demo.sh`: generate, validate, and check couchbase repos.
+- `CONTRIBUTING.md`: record the local container-evidence procedure.
+- `WORK.md`: this contract.
 
 ## Prove
 
-- Green: `make check` passes at this head.
-- Green: `make product-demo` passes, including the mongodb compile/check run.
-- Green: `scripts/invariants.sh` and `scripts/conformance.sh` pass for the
-  generated go, typescript, and python mongodb services against a disposable
-  single-node replica set.
+- Green: `make check` passes, including the new concurrent-create contract
+  test and the full render matrix with couchbase rows.
+- Green: `make product-demo` passes with couchbase compose validation and
+  setup-plus-check runs for all three couchbase language packs.
+- Green: `scripts/invariants.sh` and `scripts/conformance.sh` pass against a
+  generated Go/couchbase service on a local Couchbase container.
 - Red: a stale expectedRevision receives 409; the losing concurrent creator
-  receives 409; the contract test rejects upsert-shaped creates.
+  receives 409 from the insert exists-error, never an upsert; the harness
+  fails if any audit row appears for a failed publish or is lost on restart.
 
 ## Stop
 
-- Stop before booting mongodb containers inside product-demo or CI.
-- Stop before adding endpoints, flag kinds, or non-mongodb template changes.
-- Stop at a reviewed pull request; merging is an operator decision.
+- Stop before booting Couchbase containers inside product-demo or CI; the
+  container evidence stays a documented local procedure.
+- Stop at a reviewed pull request; do not merge.
 
 ## Evidence
 
-- Verified: generated go, typescript, and python mongodb repositories pass
-  `make setup check`.
-- Verified: both harnesses green for all three languages against mongo:8.0
-  running `--replSet rs0`; `make demo` green against the same container.
+- Verified: `make check` green at this head.
+- Verified: `make product-demo` green with couchbase compose validation and
+  setup-plus-check for the go, typescript, and python couchbase repos.
+- Verified: local Couchbase container runs green — invariants for generated
+  go, typescript, and python services and conformance for go.
 
 ## Handoff
 
-- Last: the mongodb pack is implemented with live container evidence recorded
-  in `docs/mongodb-live-proof.md`.
-- Next: fold review findings, then hand the merge decision to the operator.
+- Last: packs implemented, verification bar green, container evidence
+  captured; the procedure is recorded in `CONTRIBUTING.md`.
+- Next: open the pull request, gather review, and fold findings.

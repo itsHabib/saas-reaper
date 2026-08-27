@@ -1,0 +1,17 @@
+schema: reaper.dev/v0alpha2
+name: tenant-flags
+capability: feature-flags
+service:
+  language: python
+database:
+  authority: couchbase
+deployment:
+  target: docker
+  replicas: 1
+delivery:
+  format: directory
+domain:
+  tenant: organization
+  targetingAttributes:
+    - targetingKey
+    - organization.id

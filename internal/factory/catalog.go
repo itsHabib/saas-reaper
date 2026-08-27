@@ -64,7 +64,7 @@ type deliveryPack struct {
 
 var languagePacks = []pack{
 	newPack("go", "Go", "Small compiled service with explicit internal packages", "v4"),
-	newPack("typescript", "TypeScript", "Node.js service with strict TypeScript", "v4"),
+	newPack("typescript", "TypeScript", "Node.js service with strict TypeScript", "v5"),
 	newPack("python", "Python", "Python service with explicit policy boundaries", "v4"),
 }
 
@@ -81,35 +81,39 @@ var databasePacks = []databasePack{
 		pack:   newPack("mongodb", "MongoDB", "External document authority with replica-set transactions", "v1"),
 		shared: true,
 	},
+	{
+		pack:   newPack("couchbase", "Couchbase", "External document authority with CAS revisions", "v1"),
+		shared: true,
+	},
 }
 
 var deploymentPacks = []deploymentPack{
 	{
-		pack:      newPack("docker", "Docker Compose", "Local or single-host containers", "v3"),
-		databases: []string{"sqlite", "postgres", "mongodb"},
+		pack:      newPack("docker", "Docker Compose", "Local or single-host containers", "v4"),
+		databases: []string{"sqlite", "postgres", "mongodb", "couchbase"},
 		replicas:  ReplicaPolicy{Default: 1, Maximum: 1},
 	},
 	{
 		pack:           newPack("aws-ecs", "AWS ECS/Fargate", "Managed AWS container service with Terraform", "v3"),
 		requiresShared: true,
-		databases:      []string{"postgres", "mongodb"},
+		databases:      []string{"postgres", "mongodb", "couchbase"},
 		replicas:       ReplicaPolicy{Default: 2},
 	},
 	{
-		pack:      newPack("aws-ec2", "AWS EC2", "Single virtual machine with Terraform and cloud-init", "v3"),
-		databases: []string{"sqlite", "postgres", "mongodb"},
+		pack:      newPack("aws-ec2", "AWS EC2", "Single virtual machine with Terraform and cloud-init", "v4"),
+		databases: []string{"sqlite", "postgres", "mongodb", "couchbase"},
 		replicas:  ReplicaPolicy{Default: 1, Maximum: 1},
 	},
 	{
 		pack:           newPack("gcp-cloud-run", "GCP Cloud Run", "Managed GCP container service with Terraform", "v2"),
 		requiresShared: true,
-		databases:      []string{"postgres", "mongodb"},
+		databases:      []string{"postgres", "mongodb", "couchbase"},
 		replicas:       ReplicaPolicy{Default: 2},
 	},
 	{
 		pack:           newPack("kubernetes", "Kubernetes", "Portable manifests with Kustomize", "v2"),
 		requiresShared: true,
-		databases:      []string{"postgres", "mongodb"},
+		databases:      []string{"postgres", "mongodb", "couchbase"},
 		replicas:       ReplicaPolicy{Default: 2},
 	},
 }

@@ -1,0 +1,20 @@
+{
+  "name": "{{.Recipe.Name}}",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "tsc --noEmit && node --test src/**/*.test.ts",
+    "start": "node src/main.ts"
+  },
+  "dependencies": {
+    "couchbase": "4.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "typescript": "5.9.2"
+  }
+}

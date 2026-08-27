@@ -29,7 +29,7 @@ go build -o "$work_dir/reaper" ./cmd/reaper
 "$work_dir/reaper" catalog | jq -e '
   .schema == "reaper.dev/catalog/v1" and
   [.languages[].value] == ["go", "typescript", "python"] and
-  [.databases[].value] == ["sqlite", "postgres", "mongodb"] and
+  [.databases[].value] == ["sqlite", "postgres", "mongodb", "couchbase"] and
   [.deployments[].value] == ["docker", "aws-ecs", "aws-ec2", "gcp-cloud-run", "kubernetes"] and
   [.deliveries[].value] == ["directory", "zip", "both"]
 ' > /dev/null
@@ -97,6 +97,33 @@ REAPER_ADMIN_TOKEN=demo-admin \
     .services.mongodb.ports == null
   ' > /dev/null
 make -C "$work_dir/mongodb-local" setup check
+
+"$work_dir/reaper" generate \
+  --recipe recipes/go-couchbase-docker.yaml \
+  --out "$work_dir/couchbase-local" > /dev/null
+REAPER_ADMIN_TOKEN=demo-admin \
+  REAPER_EVALUATION_TOKEN=demo-evaluation \
+  docker compose -f "$work_dir/couchbase-local/deploy/docker/compose.yaml" config --quiet
+REAPER_ADMIN_TOKEN=demo-admin \
+  REAPER_EVALUATION_TOKEN=demo-evaluation \
+  docker compose -f "$work_dir/couchbase-local/deploy/docker/compose.yaml" config --format json |
+  jq -e '
+    (.services.flags.ports | length) == 1 and
+    .services.flags.ports[0].target == 8080 and
+    .services.couchbase.ports == null and
+    .services["couchbase-init"].ports == null
+  ' > /dev/null
+make -C "$work_dir/couchbase-local" setup check
+
+"$work_dir/reaper" generate \
+  --recipe recipes/typescript-couchbase-docker.yaml \
+  --out "$work_dir/typescript-couchbase" > /dev/null
+make -C "$work_dir/typescript-couchbase" setup check
+
+"$work_dir/reaper" generate \
+  --recipe recipes/python-couchbase-docker.yaml \
+  --out "$work_dir/python-couchbase" > /dev/null
+make -C "$work_dir/python-couchbase" setup check
 
 "$work_dir/reaper" generate \
   --recipe recipes/go-postgres-aws.yaml \
