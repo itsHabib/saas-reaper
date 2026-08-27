@@ -81,12 +81,13 @@ and API invariants black-box — stale-revision rejection, exactly one winner
 under concurrent creation, authentication separation in both directions, one
 audit row per successful publish, and definition plus audit survival across a
 service restart on the same database. A new language pack must pass both
-unchanged. Databases that cannot run in the demo (today: PostgreSQL) still
-need white-box pack evidence such as the concurrent-create INSERT/UPDATE
-contract test; running the same black-box probes against container-backed
-stores is the next extension milestone. Do not describe the structural matrix
-plus these harnesses as complete semantic proof for a store the demo never
-boots.
+unchanged. Databases that cannot run in the demo (today: PostgreSQL and
+MongoDB) still need white-box pack evidence such as the concurrent-create
+insert/duplicate-key contract tests, plus a documented container-backed run
+of the same black-box probes where a disposable container is practical
+(`docs/mongodb-live-proof.md` is the MongoDB recipe). Do not describe the
+structural matrix plus these harnesses as complete semantic proof for a store
+the demo never boots.
 
 Each rendered path has exactly one owning layer. The renderer rejects collisions
 instead of letting a later database or deployment pack silently overwrite a
@@ -162,7 +163,8 @@ The expected shape is conventional rather than framework-specific:
 templates/languages/<language>/
 ├── base/                  # API + flag policy + composition + build + hooks
 ├── sqlite/                # only the SQLite mechanism
-└── postgres/              # only the PostgreSQL mechanism
+├── postgres/              # only the PostgreSQL mechanism
+└── mongodb/               # only the MongoDB mechanism
 ```
 
 ### Add a database

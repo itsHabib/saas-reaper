@@ -29,7 +29,7 @@ go build -o "$work_dir/reaper" ./cmd/reaper
 "$work_dir/reaper" catalog | jq -e '
   .schema == "reaper.dev/catalog/v1" and
   [.languages[].value] == ["go", "typescript", "python"] and
-  [.databases[].value] == ["sqlite", "postgres"] and
+  [.databases[].value] == ["sqlite", "postgres", "mongodb"] and
   [.deployments[].value] == ["docker", "aws-ecs", "aws-ec2", "gcp-cloud-run", "kubernetes"] and
   [.deliveries[].value] == ["directory", "zip", "both"]
 ' > /dev/null
@@ -81,6 +81,22 @@ REAPER_ADMIN_TOKEN=demo-admin \
     .services.postgres.ports == null
   ' > /dev/null
 make -C "$work_dir/postgres-local" setup check
+
+"$work_dir/reaper" generate \
+  --recipe recipes/go-mongodb-docker.yaml \
+  --out "$work_dir/mongodb-local" > /dev/null
+REAPER_ADMIN_TOKEN=demo-admin \
+  REAPER_EVALUATION_TOKEN=demo-evaluation \
+  docker compose -f "$work_dir/mongodb-local/deploy/docker/compose.yaml" config --quiet
+REAPER_ADMIN_TOKEN=demo-admin \
+  REAPER_EVALUATION_TOKEN=demo-evaluation \
+  docker compose -f "$work_dir/mongodb-local/deploy/docker/compose.yaml" config --format json |
+  jq -e '
+    (.services.flags.ports | length) == 1 and
+    .services.flags.ports[0].target == 8080 and
+    .services.mongodb.ports == null
+  ' > /dev/null
+make -C "$work_dir/mongodb-local" setup check
 
 "$work_dir/reaper" generate \
   --recipe recipes/go-postgres-aws.yaml \

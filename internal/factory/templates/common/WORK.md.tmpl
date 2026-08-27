@@ -30,6 +30,7 @@ vocabulary while preserving its selected stack and feature-flag semantics.
 - Green: `make check` passes the selected {{.Recipe.Service.Language}} + {{.Recipe.Database.Authority}} stack.
 {{if eq .Recipe.Database.Authority "sqlite"}}- Green: `make demo` proves one live publish and evaluation path.
 {{end}}{{if eq .Recipe.Database.Authority "postgres"}}- Green: `DATABASE_URL=postgresql://user:password@localhost/database make demo` proves one live path against a disposable database.
+{{end}}{{if eq .Recipe.Database.Authority "mongodb"}}- Green: `DATABASE_URL=mongodb://localhost:27017/reaper?replicaSet=rs0 make demo` proves one live path against a disposable replica set.
 {{end}}- Red: an unapproved targeting attribute is rejected without changing API or storage code.
 
 ## Stop

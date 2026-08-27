@@ -1,0 +1,209 @@
+import { MongoClient } from "mongodb";
+import type { ClientSession, Collection, Db } from "mongodb";
+
+import type { AuditEntry } from "../flags/audit.ts";
+import type { Flag } from "../flags/flag.ts";
+import { RevisionConflict } from "../flags/revision.ts";
+
+interface StoredFlag {
+  environment: string;
+  key: string;
+  revision: number;
+  definition: string;
+}
+
+interface StoredAudit {
+  sequence: number;
+  environment: string;
+  key: string;
+  revision: number;
+  actor: string;
+  occurredAt: string;
+}
+
+interface StoredSequence {
+  _id: string;
+  value: number;
+}
+
+export function openAuthority(): MongoAuthority {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required");
+  }
+  return new MongoAuthority(connectionString);
+}
+
+export class MongoAuthority {
+  readonly #client: MongoClient;
+  readonly #database: Db;
+
+  constructor(connectionString: string) {
+    this.#client = new MongoClient(connectionString);
+    this.#database = this.#client.db(databaseName(connectionString));
+  }
+
+  async initialize(): Promise<void> {
+    await this.#flags().createIndex({ environment: 1, key: 1 }, { unique: true });
+    await this.#audit().createIndex({ sequence: -1 }, { unique: true });
+    await this.#seedSequence();
+  }
+
+  async load(environment: string, key: string): Promise<Flag | undefined> {
+    const stored = await this.#flags().findOne({ environment, key });
+    if (!stored) {
+      return undefined;
+    }
+    return JSON.parse(stored.definition) as Flag;
+  }
+
+  // publish commits the definition and its audit entry in one multi-document
+  // transaction, which requires the MongoDB deployment to run as a replica set.
+  async publish(environment: string, flag: Flag, expectedRevision: number, actor: string): Promise<Flag> {
+    const session = this.#client.startSession();
+    try {
+      return await session.withTransaction(async () =>
+        this.#publishInTransaction(session, environment, flag, expectedRevision, actor),
+      );
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async #publishInTransaction(
+    session: ClientSession,
+    environment: string,
+    flag: Flag,
+    expectedRevision: number,
+    actor: string,
+  ): Promise<Flag> {
+    const current = await this.#flags().findOne({ environment, key: flag.key }, { session });
+    requireRevision(current?.revision, expectedRevision);
+    const published = { ...flag, revision: expectedRevision + 1, updatedAt: new Date().toISOString() };
+    await this.#writeFlag(session, environment, published, current !== null);
+    await this.#appendAudit(session, environment, published, actor);
+    return published;
+  }
+
+  async #writeFlag(session: ClientSession, environment: string, published: Flag, exists: boolean): Promise<void> {
+    const definition = JSON.stringify(published);
+    if (!exists) {
+      try {
+        await this.#flags().insertOne(
+          { environment, key: published.key, revision: published.revision, definition },
+          { session },
+        );
+        return;
+      } catch (error) {
+        if (mongoCode(error) === 11000) {
+          throw new RevisionConflict(`expected revision ${published.revision - 1}, flag was created concurrently`);
+        }
+        throw error;
+      }
+    }
+    const result = await this.#flags().updateOne(
+      { environment, key: published.key, revision: published.revision - 1 },
+      { $set: { revision: published.revision, definition } },
+      { session },
+    );
+    if (result.matchedCount === 0) {
+      throw new RevisionConflict(`flag moved past revision ${published.revision - 1} concurrently`);
+    }
+  }
+
+  async #appendAudit(session: ClientSession, environment: string, published: Flag, actor: string): Promise<void> {
+    const sequence = await this.#nextSequence(session);
+    await this.#audit().insertOne(
+      {
+        sequence,
+        environment,
+        key: published.key,
+        revision: published.revision,
+        actor,
+        occurredAt: published.updatedAt,
+      },
+      { session },
+    );
+  }
+
+  async #nextSequence(session: ClientSession): Promise<number> {
+    const advanced = await this.#sequences().findOneAndUpdate(
+      { _id: "audit" },
+      { $inc: { value: 1 } },
+      { returnDocument: "after", session },
+    );
+    if (!advanced) {
+      throw new Error("audit sequence is not initialized");
+    }
+    return advanced.value;
+  }
+
+  async #seedSequence(): Promise<void> {
+    try {
+      await this.#sequences().insertOne({ _id: "audit", value: 0 });
+    } catch (error) {
+      if (mongoCode(error) === 11000) {
+        return;
+      }
+      throw error;
+    }
+  }
+
+  async audit(limit: number): Promise<AuditEntry[]> {
+    const rows = await this.#audit().find({}).sort({ sequence: -1 }).limit(limit).toArray();
+    return rows.map((row) => ({
+      sequence: row.sequence,
+      environment: row.environment,
+      key: row.key,
+      revision: row.revision,
+      actor: row.actor,
+      occurredAt: row.occurredAt,
+    }));
+  }
+
+  async close(): Promise<void> {
+    await this.#client.close();
+  }
+
+  #flags(): Collection<StoredFlag> {
+    return this.#database.collection<StoredFlag>("flags");
+  }
+
+  #audit(): Collection<StoredAudit> {
+    return this.#database.collection<StoredAudit>("audit");
+  }
+
+  #sequences(): Collection<StoredSequence> {
+    return this.#database.collection<StoredSequence>("sequences");
+  }
+}
+
+function databaseName(connectionString: string): string {
+  const parsed = new URL(connectionString);
+  const name = parsed.pathname.replace(/^\//, "");
+  if (name === "") {
+    return "reaper";
+  }
+  return name;
+}
+
+function mongoCode(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") {
+    return undefined;
+  }
+  const code = (error as { code?: unknown }).code;
+  if (typeof code !== "number") {
+    return undefined;
+  }
+  return code;
+}
+
+function requireRevision(current: number | undefined, expected: number): void {
+  if (current === undefined && expected === 0) {
+    return;
+  }
+  if (current === expected) {
+    return;
+  }
+  throw new RevisionConflict(`expected revision ${expected}, current revision ${current ?? 0}`);
+}

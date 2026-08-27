@@ -34,7 +34,7 @@ variable "admin_token_secret_arn" {
 variable "evaluation_token_secret_arn" {
   type = string
 }
-{{if eq .Recipe.Database.Authority "postgres"}}
+{{if ne .Recipe.Database.Authority "sqlite"}}
 variable "database_url_secret_arn" {
   type = string
 }

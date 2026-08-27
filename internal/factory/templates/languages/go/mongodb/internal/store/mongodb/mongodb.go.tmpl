@@ -1,0 +1,315 @@
+// Package mongodb provides the external durable document authority.
+package mongodb
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+
+	"example.com/{{.Recipe.Name}}/internal/flags"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+)
+
+type Authority struct {
+	client   *mongo.Client
+	database *mongo.Database
+}
+
+type storedFlag struct {
+	Environment string `bson:"environment"`
+	Key         string `bson:"key"`
+	Revision    int64  `bson:"revision"`
+	Definition  string `bson:"definition"`
+}
+
+type storedAudit struct {
+	Sequence    int64     `bson:"sequence"`
+	Environment string    `bson:"environment"`
+	Key         string    `bson:"key"`
+	Revision    int64     `bson:"revision"`
+	Actor       string    `bson:"actor"`
+	OccurredAt  time.Time `bson:"occurredAt"`
+}
+
+func OpenFromEnvironment(ctx context.Context) (*Authority, error) {
+	connectionString := os.Getenv("DATABASE_URL")
+	if connectionString == "" {
+		return nil, errors.New("DATABASE_URL is required")
+	}
+	return Open(ctx, connectionString)
+}
+
+func Open(ctx context.Context, connectionString string) (*Authority, error) {
+	name, err := databaseName(connectionString)
+	if err != nil {
+		return nil, err
+	}
+	client, err := mongo.Connect(options.Client().ApplyURI(connectionString))
+	if err != nil {
+		return nil, fmt.Errorf("open mongodb: %w", err)
+	}
+	return &Authority{client: client, database: client.Database(name)}, nil
+}
+
+func databaseName(connectionString string) (string, error) {
+	parsed, err := url.Parse(connectionString)
+	if err != nil {
+		return "", fmt.Errorf("parse DATABASE_URL: %w", err)
+	}
+	name := strings.Trim(parsed.Path, "/")
+	if name == "" {
+		return "reaper", nil
+	}
+	return name, nil
+}
+
+func (a *Authority) Initialize(ctx context.Context) error {
+	_, err := a.flags().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{bson.E{Key: "environment", Value: 1}, bson.E{Key: "key", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return fmt.Errorf("initialize mongodb flag index: %w", err)
+	}
+	_, err = a.audit().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{bson.E{Key: "sequence", Value: -1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return fmt.Errorf("initialize mongodb audit index: %w", err)
+	}
+	return a.seedSequence(ctx)
+}
+
+func (a *Authority) seedSequence(ctx context.Context) error {
+	_, err := a.sequences().InsertOne(ctx, bson.D{bson.E{Key: "_id", Value: "audit"}, bson.E{Key: "value", Value: int64(0)}})
+	if mongo.IsDuplicateKeyError(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("initialize mongodb audit sequence: %w", err)
+	}
+	return nil
+}
+
+func (a *Authority) Close() error {
+	if err := a.client.Disconnect(context.Background()); err != nil {
+		return fmt.Errorf("close mongodb: %w", err)
+	}
+	return nil
+}
+
+func (a *Authority) Load(ctx context.Context, environment, key string) (flags.Flag, error) {
+	var stored storedFlag
+	err := a.flags().FindOne(ctx, flagFilter(environment, key)).Decode(&stored)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return flags.Flag{}, fmt.Errorf("%w: %s", flags.ErrNotFound, key)
+	}
+	if err != nil {
+		return flags.Flag{}, fmt.Errorf("load flag: %w", err)
+	}
+	return flags.Decode([]byte(stored.Definition))
+}
+
+// Publish commits the definition and its audit entry in one multi-document
+// transaction, which requires the MongoDB deployment to run as a replica set.
+func (a *Authority) Publish(
+	ctx context.Context,
+	environment string,
+	flag flags.Flag,
+	expectedRevision int64,
+	actor string,
+) (flags.Flag, error) {
+	session, err := a.client.StartSession()
+	if err != nil {
+		return flags.Flag{}, fmt.Errorf("begin publish: %w", err)
+	}
+	defer session.EndSession(ctx)
+	published, err := session.WithTransaction(ctx, func(ctx context.Context) (any, error) {
+		return a.publishInTransaction(ctx, environment, flag, expectedRevision, actor)
+	})
+	if err != nil {
+		return flags.Flag{}, err
+	}
+	return published.(flags.Flag), nil
+}
+
+func (a *Authority) publishInTransaction(
+	ctx context.Context,
+	environment string,
+	flag flags.Flag,
+	expectedRevision int64,
+	actor string,
+) (flags.Flag, error) {
+	currentRevision, exists, err := a.readRevision(ctx, environment, flag.Key)
+	if err != nil {
+		return flags.Flag{}, err
+	}
+	if !exists && expectedRevision != 0 {
+		return flags.Flag{}, conflict(expectedRevision, 0)
+	}
+	if exists && currentRevision != expectedRevision {
+		return flags.Flag{}, conflict(expectedRevision, currentRevision)
+	}
+	flag.Revision = currentRevision + 1
+	flag.UpdatedAt = time.Now().UTC()
+	definition, err := json.Marshal(flag)
+	if err != nil {
+		return flags.Flag{}, fmt.Errorf("encode flag: %w", err)
+	}
+	if err := a.writeFlag(ctx, environment, flag, string(definition), exists); err != nil {
+		return flags.Flag{}, err
+	}
+	if err := a.appendAudit(ctx, environment, flag, actor); err != nil {
+		return flags.Flag{}, err
+	}
+	return flag, nil
+}
+
+func (a *Authority) readRevision(ctx context.Context, environment, key string) (int64, bool, error) {
+	var stored storedFlag
+	err := a.flags().FindOne(ctx, flagFilter(environment, key)).Decode(&stored)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("read revision: %w", err)
+	}
+	return stored.Revision, true, nil
+}
+
+func (a *Authority) writeFlag(
+	ctx context.Context,
+	environment string,
+	flag flags.Flag,
+	definition string,
+	exists bool,
+) error {
+	if !exists {
+		_, err := a.flags().InsertOne(ctx, storedFlag{
+			Environment: environment,
+			Key:         flag.Key,
+			Revision:    flag.Revision,
+			Definition:  definition,
+		})
+		if mongo.IsDuplicateKeyError(err) {
+			return fmt.Errorf("%w: flag was created concurrently", flags.ErrConflict)
+		}
+		if err != nil {
+			return fmt.Errorf("create flag: %w", err)
+		}
+		return nil
+	}
+	result, err := a.flags().UpdateOne(
+		ctx,
+		bson.D{
+			bson.E{Key: "environment", Value: environment},
+			bson.E{Key: "key", Value: flag.Key},
+			bson.E{Key: "revision", Value: flag.Revision - 1},
+		},
+		bson.D{bson.E{Key: "$set", Value: bson.D{
+			bson.E{Key: "revision", Value: flag.Revision},
+			bson.E{Key: "definition", Value: definition},
+		}}},
+	)
+	if err != nil {
+		return fmt.Errorf("update flag: %w", err)
+	}
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("%w: flag moved past revision %d concurrently", flags.ErrConflict, flag.Revision-1)
+	}
+	return nil
+}
+
+func (a *Authority) appendAudit(ctx context.Context, environment string, flag flags.Flag, actor string) error {
+	sequence, err := a.nextSequence(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = a.audit().InsertOne(ctx, storedAudit{
+		Sequence:    sequence,
+		Environment: environment,
+		Key:         flag.Key,
+		Revision:    flag.Revision,
+		Actor:       actor,
+		OccurredAt:  flag.UpdatedAt,
+	})
+	if err != nil {
+		return fmt.Errorf("append audit: %w", err)
+	}
+	return nil
+}
+
+func (a *Authority) nextSequence(ctx context.Context) (int64, error) {
+	var counter struct {
+		Value int64 `bson:"value"`
+	}
+	err := a.sequences().FindOneAndUpdate(
+		ctx,
+		bson.D{bson.E{Key: "_id", Value: "audit"}},
+		bson.D{bson.E{Key: "$inc", Value: bson.D{bson.E{Key: "value", Value: int64(1)}}}},
+		options.FindOneAndUpdate().SetReturnDocument(options.After),
+	).Decode(&counter)
+	if err != nil {
+		return 0, fmt.Errorf("advance audit sequence: %w", err)
+	}
+	return counter.Value, nil
+}
+
+func (a *Authority) Audit(ctx context.Context, limit int) ([]flags.AuditEntry, error) {
+	cursor, err := a.audit().Find(
+		ctx,
+		bson.D{},
+		options.Find().SetSort(bson.D{bson.E{Key: "sequence", Value: -1}}).SetLimit(int64(limit)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query audit: %w", err)
+	}
+	defer cursor.Close(ctx)
+	entries := make([]flags.AuditEntry, 0, limit)
+	for cursor.Next(ctx) {
+		var stored storedAudit
+		if err := cursor.Decode(&stored); err != nil {
+			return nil, fmt.Errorf("decode audit: %w", err)
+		}
+		entries = append(entries, flags.AuditEntry{
+			Sequence:    stored.Sequence,
+			Environment: stored.Environment,
+			Key:         stored.Key,
+			Revision:    stored.Revision,
+			Actor:       stored.Actor,
+			OccurredAt:  stored.OccurredAt,
+		})
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("iterate audit: %w", err)
+	}
+	return entries, nil
+}
+
+func (a *Authority) flags() *mongo.Collection {
+	return a.database.Collection("flags")
+}
+
+func (a *Authority) audit() *mongo.Collection {
+	return a.database.Collection("audit")
+}
+
+func (a *Authority) sequences() *mongo.Collection {
+	return a.database.Collection("sequences")
+}
+
+func flagFilter(environment, key string) bson.D {
+	return bson.D{bson.E{Key: "environment", Value: environment}, bson.E{Key: "key", Value: key}}
+}
+
+func conflict(expected, current int64) error {
+	return fmt.Errorf("%w: expected revision %d, current revision %d", flags.ErrConflict, expected, current)
+}

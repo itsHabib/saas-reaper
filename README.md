@@ -44,8 +44,8 @@ go run ./cmd/reaper generate \
   --out /tmp/acme-flags
 ```
 
-The customer chooses Go, TypeScript, or Python; SQLite or PostgreSQL; a
-deployment pack; and directory/ZIP delivery. Reaper validates compatibility,
+The customer chooses Go, TypeScript, or Python; SQLite, PostgreSQL, or
+MongoDB; a deployment pack; and directory/ZIP delivery. Reaper validates compatibility,
 renders only the selected mechanisms, and returns an independent repository
 containing the service, infrastructure, `AGENTS.md`, `CLAUDE.md`, `DOMAIN.md`,
 `WORK.md`, skills, receipt, checks, and demo. Generation never provisions
@@ -53,7 +53,8 @@ infrastructure and generated services do not call home.
 
 Supported deployment packs are Docker Compose, AWS ECS/Fargate, AWS EC2, GCP
 Cloud Run, and Kubernetes/Kustomize. Managed and multi-replica targets require
-PostgreSQL; unsafe SQLite combinations are rejected before rendering.
+a shared authority (PostgreSQL or MongoDB); unsafe SQLite combinations are
+rejected before rendering.
 
 Run the factory proof:
 
@@ -179,9 +180,12 @@ OpenFeature Go, TypeScript, and Python clients through the specimen's scenario
 table and the audit read, the other proves the store and API invariants
 black-box — stale-revision rejection, one winner under concurrent creation,
 authentication separation, one audit row per publish, and survival of
-definitions and audit across a service restart.
+definitions and audit across a service restart. PostgreSQL and MongoDB packs
+compile and check in the demo without a live database; the MongoDB packs
+additionally carry a documented container-backed run of both harnesses
+(`docs/mongodb-live-proof.md`).
 Cloud templates are delivered for review
-but are never applied by Reaper. Managed PostgreSQL instances, domains,
+but are never applied by Reaper. Managed PostgreSQL and MongoDB instances, domains,
 certificates, container registries, and secret values remain explicit customer
 inputs.
 

@@ -121,6 +121,43 @@ func TestPostgresPacksPreserveConcurrentCreateConflict(t *testing.T) {
 	}
 }
 
+func TestMongoDBPacksPreserveConcurrentCreateConflict(t *testing.T) {
+	packs := map[string]struct {
+		required  []string
+		forbidden []string
+	}{
+		"templates/languages/go/mongodb/internal/store/mongodb/mongodb.go.tmpl": {
+			required:  []string{"InsertOne", "UpdateOne", "mongo.IsDuplicateKeyError(err)"},
+			forbidden: []string{"SetUpsert", "ReplaceOne", "FindOneAndReplace"},
+		},
+		"templates/languages/typescript/mongodb/src/store/mongodb.ts.tmpl": {
+			required:  []string{"insertOne", "updateOne", "mongoCode(error) === 11000"},
+			forbidden: []string{"upsert: true", "replaceOne", "findOneAndReplace"},
+		},
+		"templates/languages/python/mongodb/reaper_flags/store/mongodb.py.tmpl": {
+			required:  []string{"insert_one", "update_one", "errors.DuplicateKeyError"},
+			forbidden: []string{"upsert=True", "replace_one", "find_one_and_replace"},
+		},
+	}
+	for path, contract := range packs {
+		body, err := templateFiles.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := string(body)
+		for _, marker := range contract.forbidden {
+			if strings.Contains(source, marker) {
+				t.Fatalf("%s turns concurrent creation into an upsert via %q", path, marker)
+			}
+		}
+		for _, marker := range contract.required {
+			if !strings.Contains(source, marker) {
+				t.Fatalf("%s is missing concurrent-create safeguard %q", path, marker)
+			}
+		}
+	}
+}
+
 func assertTemplatesExclude(t *testing.T, root, fragment string) {
 	t.Helper()
 	err := fs.WalkDir(templateFiles, root, func(path string, entry fs.DirEntry, walkErr error) error {

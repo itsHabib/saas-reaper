@@ -77,35 +77,39 @@ var databasePacks = []databasePack{
 		pack:   newPack("postgres", "PostgreSQL", "External production authority", "v3"),
 		shared: true,
 	},
+	{
+		pack:   newPack("mongodb", "MongoDB", "External document authority with replica-set transactions", "v1"),
+		shared: true,
+	},
 }
 
 var deploymentPacks = []deploymentPack{
 	{
-		pack:      newPack("docker", "Docker Compose", "Local or single-host containers", "v2"),
-		databases: []string{"sqlite", "postgres"},
+		pack:      newPack("docker", "Docker Compose", "Local or single-host containers", "v3"),
+		databases: []string{"sqlite", "postgres", "mongodb"},
 		replicas:  ReplicaPolicy{Default: 1, Maximum: 1},
 	},
 	{
-		pack:           newPack("aws-ecs", "AWS ECS/Fargate", "Managed AWS container service with Terraform", "v2"),
+		pack:           newPack("aws-ecs", "AWS ECS/Fargate", "Managed AWS container service with Terraform", "v3"),
 		requiresShared: true,
-		databases:      []string{"postgres"},
+		databases:      []string{"postgres", "mongodb"},
 		replicas:       ReplicaPolicy{Default: 2},
 	},
 	{
-		pack:      newPack("aws-ec2", "AWS EC2", "Single virtual machine with Terraform and cloud-init", "v2"),
-		databases: []string{"sqlite", "postgres"},
+		pack:      newPack("aws-ec2", "AWS EC2", "Single virtual machine with Terraform and cloud-init", "v3"),
+		databases: []string{"sqlite", "postgres", "mongodb"},
 		replicas:  ReplicaPolicy{Default: 1, Maximum: 1},
 	},
 	{
-		pack:           newPack("gcp-cloud-run", "GCP Cloud Run", "Managed GCP container service with Terraform", "v1"),
+		pack:           newPack("gcp-cloud-run", "GCP Cloud Run", "Managed GCP container service with Terraform", "v2"),
 		requiresShared: true,
-		databases:      []string{"postgres"},
+		databases:      []string{"postgres", "mongodb"},
 		replicas:       ReplicaPolicy{Default: 2},
 	},
 	{
-		pack:           newPack("kubernetes", "Kubernetes", "Portable manifests with Kustomize", "v1"),
+		pack:           newPack("kubernetes", "Kubernetes", "Portable manifests with Kustomize", "v2"),
 		requiresShared: true,
-		databases:      []string{"postgres"},
+		databases:      []string{"postgres", "mongodb"},
 		replicas:       ReplicaPolicy{Default: 2},
 	},
 }
