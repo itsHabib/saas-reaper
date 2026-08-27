@@ -84,6 +84,10 @@ jobs:
     name: Secret history scan
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      # The scan action lists a pull request's commits through the API.
+      contents: read
+      pull-requests: read
     steps:
       - name: Check out complete history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

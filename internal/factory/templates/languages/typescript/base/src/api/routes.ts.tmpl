@@ -124,15 +124,19 @@ async function audit(
   }
   const raw = new URL(request.url ?? "/", "http://localhost").searchParams.get("limit");
   let limit = 100;
-  if (raw !== null) {
+  if (raw !== null && raw !== "") {
     if (!/^-?\d+$/.test(raw)) {
       write(response, 400, { error: "limit must be an integer" });
       return;
     }
     limit = Number(raw);
   }
-  const entries = await authority.audit(auditLimit(limit));
-  write(response, 200, { audit: entries });
+  try {
+    const entries = await authority.audit(auditLimit(limit));
+    write(response, 200, { audit: entries });
+  } catch {
+    write(response, 500, { error: "read audit" });
+  }
 }
 
 function authorized(request: IncomingMessage, expected: string): boolean {

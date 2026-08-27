@@ -30,7 +30,8 @@ demo and the conformance harness.
 - `internal/factory/templates/common/scripts/demo.sh.tmpl`: demo reads the audit and proves the evaluation token is rejected.
 - `scripts/conformance.sh`: harness asserts the audit entry and the 401 boundary against every generated SQLite service.
 - `internal/factory/templates/languages/typescript/base/scripts/start-language.sh.tmpl`: exec node directly so a stop signal reaches the service and the demo port drains.
-- `.github/workflows/ci.yml`: full-history checkouts so the work-contract validator resolves its git subject in CI.
+- `.github/workflows/ci.yml`: full-history checkouts so the work-contract validator resolves its git subject in CI; secret scan may list pull-request commits.
+- `.gitleaks.toml`: allow the demo template's throwaway bearer values where the curl rule anchors its match on the invocation line.
 - `internal/factory/render.go`: factory version 0.6.0; language packs v4 and database packs v3 in `catalog.go`.
 - `README.md`: honest boundary narrows to listing and bulk; `REAPER.yaml`, `CONTRIBUTING.md`, and the generated README template record the served audit read.
 
@@ -42,8 +43,8 @@ demo and the conformance harness.
   actor and revision 1.
 - Red: an evaluation token on `GET /v1/audit` receives 401 in every generated
   service; demo and harness both assert it.
-- Red: a non-integer limit receives 400 in every generated service; the
-  harness asserts it.
+- Red: a non-integer limit receives 400 and an empty limit falls back to the
+  default in every generated service; the harness asserts both.
 
 ## Stop
 

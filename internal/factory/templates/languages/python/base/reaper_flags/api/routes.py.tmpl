@@ -113,7 +113,11 @@ def make_handler(
             except ValueError:
                 self.write_json(400, {"error": "limit must be an integer"})
                 return
-            entries = authority.audit(audit_limit(limit))
+            try:
+                entries = authority.audit(audit_limit(limit))
+            except Exception:
+                self.write_json(500, {"error": "read audit"})
+                return
             self.write_json(200, {"audit": [audit_record(entry) for entry in entries]})
 
         def authorized(self, expected: str) -> bool:

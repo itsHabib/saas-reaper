@@ -11,6 +11,13 @@ regexTarget = "line"
 regexes = ['''Authorization: Bearer demo-(admin|evaluation)''']
 
 [[allowlists]]
+description = "Same throwaway demo bearer values where a rule anchors on the curl line"
+condition = "AND"
+paths = ['''internal/factory/templates/common/scripts/demo\.sh\.tmpl$''']
+regexTarget = "match"
+regexes = ['''Authorization: Bearer demo-(admin|evaluation)''']
+
+[[allowlists]]
 description = "Pinned modernc module checksum, not an API credential"
 condition = "AND"
 paths = ['''internal/factory/templates/languages/go/sqlite/go\.sum\.tmpl$''']

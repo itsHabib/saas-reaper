@@ -137,4 +137,12 @@ if [[ "$malformed" != 400 ]]; then
   exit 1
 fi
 
+empty_limit=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --header "Authorization: Bearer $admin_token" \
+  "$base_url/v1/audit?limit=")
+if [[ "$empty_limit" != 200 ]]; then
+  echo "generated $language service must default an empty audit limit (got $empty_limit)" >&2
+  exit 1
+fi
+
 echo "conformance: generated $language service matched the OpenFeature scenario table"
