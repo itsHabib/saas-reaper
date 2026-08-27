@@ -98,3 +98,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "false"
+          # The action defaults to 8.24.3, which silently ignores this
+          # repository's [[allowlists]] tables (supported from 8.25).
+          GITLEAKS_VERSION: "8.30.1"
