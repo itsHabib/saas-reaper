@@ -16,7 +16,7 @@ server_pid=''
 
 cleanup() {
   if [[ -n "$server_pid" ]]; then
-    kill "$server_pid" 2> /dev/null || true
+    kill -9 "$server_pid" 2> /dev/null || true
     wait "$server_pid" 2> /dev/null || true
   fi
   if [[ "$work_dir" == /tmp/* || "$work_dir" == /var/folders/* ]]; then
@@ -56,15 +56,29 @@ boot_service() {
 
 stop_service() {
   kill "$server_pid" 2> /dev/null || true
-  wait "$server_pid" 2> /dev/null || true
-  server_pid=''
+  drained=false
   for _ in {1..50}; do
     if ! curl --silent "$base_url/healthz" > /dev/null; then
-      return 0
+      drained=true
+      break
     fi
     sleep 0.1
   done
-  fail "service kept answering after a stop signal; the port never drained"
+  if [[ "$drained" != true ]]; then
+    kill -9 "$server_pid" 2> /dev/null || true
+    wait "$server_pid" 2> /dev/null || true
+    server_pid=''
+    fail "service kept serving for five seconds after a stop signal"
+  fi
+  (
+    sleep 5
+    kill -9 "$server_pid" 2> /dev/null
+  ) &
+  reap_deadline=$!
+  wait "$server_pid" 2> /dev/null || true
+  server_pid=''
+  kill "$reap_deadline" 2> /dev/null || true
+  wait "$reap_deadline" 2> /dev/null || true
 }
 
 publish_status() {
@@ -93,26 +107,35 @@ evaluate_status() {
     "$base_url/environments/production/ofrep/v1/evaluate/flags/checkout-v2"
 }
 
-audit_body() {
+evaluate_organization() {
   curl --silent --fail \
-    --header "Authorization: Bearer $admin_token" \
-    "$base_url/v1/audit?limit=10"
-}
-
-assert_targeting_match() {
-  result=$(curl --silent --fail \
     --request POST \
     --header "Authorization: Bearer $evaluation_token" \
     --header 'Content-Type: application/json' \
-    --data '{"context":{"targetingKey":"user-2","organization.id":"acme"}}' \
-    "$base_url/environments/production/ofrep/v1/evaluate/flags/checkout-v2")
-  printf '%s' "$result" |
+    --data "{\"context\":{\"targetingKey\":\"user-2\",\"organization.id\":\"$1\"}}" \
+    "$base_url/environments/production/ofrep/v1/evaluate/flags/checkout-v2"
+}
+
+assert_rule_match() {
+  evaluate_organization "$1" |
     jq -e '.value == true and .variant == "on" and .reason == "TARGETING_MATCH"' > /dev/null ||
-    fail "$1"
+    fail "$2"
+}
+
+assert_rollout_miss() {
+  evaluate_organization "$1" |
+    jq -e '.value == false and .variant == "off" and .reason == "STATIC"' > /dev/null ||
+    fail "$2"
+}
+
+audit_rows() {
+  curl --silent --fail \
+    --header "Authorization: Bearer $admin_token" \
+    "$base_url/v1/audit?limit=10" | jq -cS '.audit'
 }
 
 fixture=$(cat fixtures/publish-checkout-v2.json)
-update=$(jq -c '.expectedRevision = 1' <<< "$fixture")
+update=$(jq -c '.expectedRevision = 1 | .flag.rules[0].equals = "umbrella"' <<< "$fixture")
 minimal='{"expectedRevision":0,"flag":{"kind":"boolean","enabled":true,"defaultVariant":"off","variants":{"off":false,"on":true}}}'
 
 boot_service
@@ -123,10 +146,19 @@ created=$(publish_status "$admin_token" checkout-v2 "$fixture")
 stale=$(publish_status "$admin_token" checkout-v2 "$fixture")
 [[ "$stale" == 409 ]] || fail "stale expectedRevision returned $stale, want 409"
 
-publish_status "$admin_token" concurrent-flag "$minimal" > "$work_dir/race-one" &
+starting_gun=$work_dir/race-gun
+(
+  until [[ -f "$starting_gun" ]]; do sleep 0.01; done
+  publish_status "$admin_token" concurrent-flag "$minimal"
+) > "$work_dir/race-one" &
 race_one=$!
-publish_status "$admin_token" concurrent-flag "$minimal" > "$work_dir/race-two" &
+(
+  until [[ -f "$starting_gun" ]]; do sleep 0.01; done
+  publish_status "$admin_token" concurrent-flag "$minimal"
+) > "$work_dir/race-two" &
 race_two=$!
+sleep 0.3
+touch "$starting_gun"
 wait "$race_one" "$race_two"
 race_codes=$(sort "$work_dir/race-one" "$work_dir/race-two" | paste -sd ' ' -)
 [[ "$race_codes" == "200 409" ]] ||
@@ -147,19 +179,28 @@ read_with_no_token=$(evaluate_status "")
 updated=$(publish_status "$admin_token" checkout-v2 "$update")
 [[ "$updated" == 200 ]] || fail "revision-pinned update returned $updated, want 200"
 
-audit_body | jq -e '
-  (.audit | length == 3)
-    and .audit[0].key == "checkout-v2" and .audit[0].revision == 2
-    and (.audit | map(.actor) | unique == ["invariants"])
-' > /dev/null || fail "audit does not hold one row per successful publish, newest first"
+assert_rule_match umbrella "revision-2 rule change is not being served"
+assert_rollout_miss acme "revision-1 rule is still matching after the revision-2 update"
 
-assert_targeting_match "pre-restart evaluation lost the published rule"
+audit_before=$(audit_rows)
+jq -e '
+  length == 3
+    and .[0].key == "checkout-v2" and .[0].revision == 2
+    and .[1].key == "concurrent-flag" and .[1].revision == 1
+    and .[2].key == "checkout-v2" and .[2].revision == 1
+    and .[0].sequence > .[1].sequence and .[1].sequence > .[2].sequence
+    and (map(.actor) | unique == ["invariants"])
+' <<< "$audit_before" > /dev/null ||
+  fail "audit does not hold one row per successful publish in newest-first publication order"
 
 stop_service
 boot_service
 
-assert_targeting_match "restart lost the published definition"
-audit_body | jq -e '.audit | length == 3' > /dev/null ||
-  fail "restart lost audit rows"
+assert_rule_match umbrella "restart lost the latest published definition"
+assert_rollout_miss acme "restart resurrected a superseded definition"
+
+audit_after=$(audit_rows)
+[[ "$audit_after" == "$audit_before" ]] ||
+  fail "audit rows changed across restart"
 
 echo "invariants: generated $language service held revision, authority, audit, and restart invariants"
