@@ -100,7 +100,7 @@ var deploymentPacks = []deploymentPack{
 		replicas:       ReplicaPolicy{Default: 2},
 	},
 	{
-		pack:      newPack("aws-ec2", "AWS EC2", "Single virtual machine with Terraform and cloud-init", "v4"),
+		pack:      newPack("aws-ec2", "AWS EC2", "Single virtual machine with Terraform and cloud-init", "v3"),
 		databases: []string{"sqlite", "postgres", "mongodb", "couchbase"},
 		replicas:  ReplicaPolicy{Default: 1, Maximum: 1},
 	},
@@ -111,7 +111,7 @@ var deploymentPacks = []deploymentPack{
 		replicas:       ReplicaPolicy{Default: 2},
 	},
 	{
-		pack:           newPack("kubernetes", "Kubernetes", "Portable manifests with Kustomize", "v2"),
+		pack:           newPack("kubernetes", "Kubernetes", "Portable manifests with Kustomize", "v3"),
 		requiresShared: true,
 		databases:      []string{"postgres", "mongodb", "couchbase"},
 		replicas:       ReplicaPolicy{Default: 2},
