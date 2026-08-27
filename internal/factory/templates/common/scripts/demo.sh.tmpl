@@ -25,10 +25,13 @@ export REAPER_EVALUATION_TOKEN=demo-evaluation
 {{end}}{{if eq .Recipe.Database.Authority "mongodb"}}: "${DATABASE_URL:?set DATABASE_URL to a disposable MongoDB replica set}"
 {{end}}{{if eq .Recipe.Database.Authority "couchbase"}}: "${DATABASE_URL:?set DATABASE_URL to a disposable Couchbase bucket}"
 {{end}}
+health_attempts=80
+{{if eq .Recipe.Database.Authority "couchbase"}}health_attempts=1200
+{{end}}
 bash scripts/start-language.sh "$work_dir" >"$work_dir/server.log" 2>&1 &
 pid=$!
 
-for _ in $(seq 1 80); do
+for _ in $(seq 1 "$health_attempts"); do
   if curl --silent --fail "http://127.0.0.1:$port/healthz" >/dev/null; then
     break
   fi
