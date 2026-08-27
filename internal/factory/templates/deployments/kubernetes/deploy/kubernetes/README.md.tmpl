@@ -11,5 +11,5 @@ secret controller. Set the immutable image in an overlay, then inspect:
 kubectl kustomize deploy/kubernetes/base
 ```
 
-The selected PostgreSQL authority is external; this pack does not install a
-database operator into an existing cluster.
+The selected `{{.Recipe.Database.Authority}}` authority is external; this pack does not
+install a database operator into an existing cluster.

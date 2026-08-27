@@ -22,6 +22,7 @@ export REAPER_ADMIN_ACTOR=demo-operator
 export REAPER_EVALUATION_TOKEN=demo-evaluation
 {{if eq .Recipe.Database.Authority "sqlite"}}export DATABASE_PATH="$work_dir/reaper.db"
 {{end}}{{if eq .Recipe.Database.Authority "postgres"}}: "${DATABASE_URL:?set DATABASE_URL to a disposable PostgreSQL database}"
+{{end}}{{if eq .Recipe.Database.Authority "mongodb"}}: "${DATABASE_URL:?set DATABASE_URL to a disposable MongoDB replica set}"
 {{end}}
 bash scripts/start-language.sh "$work_dir" >"$work_dir/server.log" 2>&1 &
 pid=$!

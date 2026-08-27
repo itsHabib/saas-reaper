@@ -1,0 +1,175 @@
+from __future__ import annotations
+
+import json
+import os
+from typing import Any
+
+from pymongo import MongoClient, ReturnDocument, errors
+from pymongo.client_session import ClientSession
+
+from reaper_flags.flags.audit import AuditEntry
+from reaper_flags.flags.flag import Flag, from_record, publish_revision, to_record
+from reaper_flags.flags.revision import RevisionConflict
+
+
+def open_authority() -> MongoAuthority:
+    connection_string = os.environ.get("DATABASE_URL")
+    if not connection_string:
+        raise ValueError("DATABASE_URL is required")
+    return MongoAuthority(connection_string)
+
+
+class MongoAuthority:
+    def __init__(self, connection_string: str) -> None:
+        self.client: MongoClient[dict[str, Any]] = MongoClient(connection_string)
+        self.database = self.client.get_default_database(default="reaper")
+
+    def initialize(self) -> None:
+        self.database["flags"].create_index([("environment", 1), ("key", 1)], unique=True)
+        self.database["audit"].create_index([("sequence", -1)], unique=True)
+        self._seed_sequence()
+
+    def _seed_sequence(self) -> None:
+        try:
+            self.database["sequences"].insert_one({"_id": "audit", "value": 0})
+        except errors.DuplicateKeyError:
+            return
+
+    def load(self, environment: str, key: str) -> Flag | None:
+        stored = self.database["flags"].find_one({"environment": environment, "key": key})
+        if stored is None:
+            return None
+        return from_record(json.loads(str(stored["definition"])))
+
+    def publish(
+        self,
+        environment: str,
+        flag: Flag,
+        expected_revision: int,
+        actor: str,
+    ) -> Flag:
+        # One multi-document transaction commits the definition and its audit
+        # entry together; it requires MongoDB to run as a replica set.
+        with self.client.start_session() as session:
+            return session.with_transaction(
+                lambda active: self._publish_in_transaction(
+                    active, environment, flag, expected_revision, actor
+                )
+            )
+
+    def _publish_in_transaction(
+        self,
+        session: ClientSession,
+        environment: str,
+        flag: Flag,
+        expected_revision: int,
+        actor: str,
+    ) -> Flag:
+        stored = self.database["flags"].find_one(
+            {"environment": environment, "key": flag.key}, session=session
+        )
+        current = None
+        if stored is not None:
+            current = int(stored["revision"])
+        require_revision(current, expected_revision)
+        published = publish_revision(flag, expected_revision + 1)
+        self._write_flag(session, environment, published, stored is not None)
+        self._append_audit(session, environment, published, actor)
+        return published
+
+    def _write_flag(
+        self,
+        session: ClientSession,
+        environment: str,
+        published: Flag,
+        exists: bool,
+    ) -> None:
+        definition = json.dumps(to_record(published))
+        if not exists:
+            try:
+                self.database["flags"].insert_one(
+                    {
+                        "environment": environment,
+                        "key": published.key,
+                        "revision": published.revision,
+                        "definition": definition,
+                    },
+                    session=session,
+                )
+                return
+            except errors.DuplicateKeyError as error:
+                raise RevisionConflict(
+                    f"expected revision {published.revision - 1}, flag was created concurrently"
+                ) from error
+        result = self.database["flags"].update_one(
+            {
+                "environment": environment,
+                "key": published.key,
+                "revision": published.revision - 1,
+            },
+            {"$set": {"revision": published.revision, "definition": definition}},
+            session=session,
+        )
+        if result.matched_count == 0:
+            raise RevisionConflict(
+                f"flag moved past revision {published.revision - 1} concurrently"
+            )
+
+    def _append_audit(
+        self,
+        session: ClientSession,
+        environment: str,
+        published: Flag,
+        actor: str,
+    ) -> None:
+        sequence = self._next_sequence(session)
+        self.database["audit"].insert_one(
+            {
+                "sequence": sequence,
+                "environment": environment,
+                "key": published.key,
+                "revision": published.revision,
+                "actor": actor,
+                "occurred_at": published.updated_at,
+            },
+            session=session,
+        )
+
+    def _next_sequence(self, session: ClientSession) -> int:
+        advanced = self.database["sequences"].find_one_and_update(
+            {"_id": "audit"},
+            {"$inc": {"value": 1}},
+            return_document=ReturnDocument.AFTER,
+            session=session,
+        )
+        if advanced is None:
+            raise RuntimeError("audit sequence is not initialized")
+        return int(advanced["value"])
+
+    def audit(self, limit: int) -> list[AuditEntry]:
+        rows = self.database["audit"].find().sort("sequence", -1).limit(limit)
+        return [
+            AuditEntry(
+                sequence=int(row["sequence"]),
+                environment=str(row["environment"]),
+                key=str(row["key"]),
+                revision=int(row["revision"]),
+                actor=str(row["actor"]),
+                occurred_at=str(row["occurred_at"]),
+            )
+            for row in rows
+        ]
+
+    def close(self) -> None:
+        self.client.close()
+
+
+def require_revision(current: int | None, expected: int) -> None:
+    if current is None and expected == 0:
+        return
+    if current == expected:
+        return
+    actual = 0
+    if current is not None:
+        actual = current
+    raise RevisionConflict(f"expected revision {expected}, current revision {actual}")

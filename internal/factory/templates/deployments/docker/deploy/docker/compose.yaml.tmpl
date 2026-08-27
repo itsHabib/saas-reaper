@@ -14,6 +14,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+{{end}}{{if eq .Recipe.Database.Authority "mongodb"}}      DATABASE_URL: mongodb://mongodb:27017/reaper?replicaSet=rs0
+    depends_on:
+      mongodb:
+        condition: service_healthy
 {{end}}    ports:
       - "8080:8080"
 {{if eq .Recipe.Database.Authority "postgres"}}  postgres:
@@ -29,9 +33,20 @@ services:
       retries: 20
     volumes:
       - postgres-data:/var/lib/postgresql/data
+{{end}}{{if eq .Recipe.Database.Authority "mongodb"}}  mongodb:
+    image: mongo:8.0
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"try { rs.status() } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongodb:27017'}]}) }; db.hello().isWritablePrimary\" | grep -q true"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - mongodb-data:/data/db
 {{end}}
 
 volumes:
 {{if eq .Recipe.Database.Authority "sqlite"}}  reaper-data:
 {{end}}{{if eq .Recipe.Database.Authority "postgres"}}  postgres-data:
+{{end}}{{if eq .Recipe.Database.Authority "mongodb"}}  mongodb-data:
 {{end}}

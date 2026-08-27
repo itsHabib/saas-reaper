@@ -11,7 +11,7 @@ locals {
   secret_arns = [
     var.admin_token_secret_arn,
     var.evaluation_token_secret_arn,
-{{if eq .Recipe.Database.Authority "postgres"}}    var.database_url_secret_arn,
+{{if ne .Recipe.Database.Authority "sqlite"}}    var.database_url_secret_arn,
 {{end}}  ]
 }
 
@@ -73,7 +73,7 @@ resource "aws_instance" "flags" {
     admin_actor_base64          = base64encode(var.admin_actor)
     admin_token_secret_arn      = var.admin_token_secret_arn
     evaluation_token_secret_arn = var.evaluation_token_secret_arn
-{{if eq .Recipe.Database.Authority "postgres"}}    database_url_secret_arn      = var.database_url_secret_arn
+{{if ne .Recipe.Database.Authority "sqlite"}}    database_url_secret_arn      = var.database_url_secret_arn
 {{end}}  })
   root_block_device {
     encrypted   = true

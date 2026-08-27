@@ -21,7 +21,7 @@ install -m 0600 /dev/null /etc/reaper.env
   printf 'REAPER_ADMIN_TOKEN=%s\n' "$(secret '${admin_token_secret_arn}')"
   printf 'REAPER_EVALUATION_TOKEN=%s\n' "$(secret '${evaluation_token_secret_arn}')"
 {{if eq .Recipe.Database.Authority "sqlite"}}  printf 'DATABASE_PATH=/data/reaper.db\n'
-{{end}}{{if eq .Recipe.Database.Authority "postgres"}}  printf 'DATABASE_URL=%s\n' "$(secret '${database_url_secret_arn}')"
+{{end}}{{if ne .Recipe.Database.Authority "sqlite"}}  printf 'DATABASE_URL=%s\n' "$(secret '${database_url_secret_arn}')"
 {{end}}} >>/etc/reaper.env
 # Terraform renders the single-quoted image placeholder before the script runs.
 # shellcheck disable=SC2016
