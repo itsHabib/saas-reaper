@@ -119,14 +119,16 @@ for _ in $(seq 1 50); do
   fi
   sleep 0.1
 done
-curl --silent --fail http://127.0.0.1:18089/ | rg -q 'Build and download repository'
+landing=$(curl --silent --fail http://127.0.0.1:18089/)
+rg -q 'Build and download repository' <<< "$landing"
 curl --silent --fail \
   --header 'Content-Type: application/json' \
   --data '{"schema":"reaper.dev/v0alpha2","name":"browser-flags","capability":"feature-flags","service":{"language":"python"},"database":{"authority":"sqlite"},"deployment":{"target":"docker","replicas":1},"delivery":{"format":"zip"},"domain":{"tenant":"organization","targetingAttributes":["targetingKey","organization.id"]}}' \
   --output "$work_dir/browser-flags.zip" \
   http://127.0.0.1:18089/api/generate
 unzip -t "$work_dir/browser-flags.zip" > /dev/null
-unzip -l "$work_dir/browser-flags.zip" | rg -q 'browser-flags/reaper_flags/__main__.py'
+archive_listing=$(unzip -l "$work_dir/browser-flags.zip")
+rg -q 'browser-flags/reaper_flags/__main__.py' <<< "$archive_listing"
 kill "$server_pid"
 wait "$server_pid" 2> /dev/null || true
 server_pid=""
