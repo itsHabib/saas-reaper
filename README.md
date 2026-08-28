@@ -1,6 +1,4 @@
-# SaaS Reaper ☠️
-
-> Every subscription has an expiration date. Yours is today.
+# SaaS Reaper
 
 <p align="center">
   <img src="docs/assets/reaper.svg" alt="A goofy little armless reaper blob, its scythe leaning against it, beside a tombstone reading R.I.P. per-seat pricing" width="560">
