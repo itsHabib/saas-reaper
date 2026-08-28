@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/itsHabib/saas-reaper-poc/internal/flags"
+	"github.com/itsHabib/saas-reaper/internal/flags"
 )
 
 const maxRequestBytes = 1 << 20

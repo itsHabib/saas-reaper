@@ -10,7 +10,7 @@ secrets/
 .reaper/
 vendor/
 coverage/
-saas-reaper-poc
+saas-reaper
 *.exe
 examples/python/.venv/
 examples/python/__pycache__/

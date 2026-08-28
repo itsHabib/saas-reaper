@@ -1,4 +1,4 @@
-module github.com/itsHabib/saas-reaper-poc
+module github.com/itsHabib/saas-reaper
 
 go 1.25.0
 

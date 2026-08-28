@@ -37,13 +37,13 @@ fi
 
 if rg -n \
   -g '!**/*_test.go' \
-  'saas-reaper-poc/internal/(api|snapshot|store)' \
+  'saas-reaper/internal/(api|snapshot|store)' \
   internal/flags; then
   echo "policy boundary violation: internal/flags imports a mechanism or transport" >&2
   exit 1
 fi
 
-if rg -n 'saas-reaper-poc/internal/api' internal/store internal/snapshot; then
+if rg -n 'saas-reaper/internal/api' internal/store internal/snapshot; then
   echo "mechanism boundary violation: persistence/projection imports transport" >&2
   exit 1
 fi

@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/itsHabib/saas-reaper-poc/internal/flags"
+	"github.com/itsHabib/saas-reaper/internal/flags"
 	// Register the pure-Go SQLite database/sql driver.
 	_ "modernc.org/sqlite"
 )

@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/itsHabib/saas-reaper-poc/internal/configurator"
-	"github.com/itsHabib/saas-reaper-poc/internal/factory"
+	"github.com/itsHabib/saas-reaper/internal/configurator"
+	"github.com/itsHabib/saas-reaper/internal/factory"
 )
 
 func main() {

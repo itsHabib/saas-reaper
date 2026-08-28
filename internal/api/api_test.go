@@ -9,10 +9,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/itsHabib/saas-reaper-poc/internal/api"
-	"github.com/itsHabib/saas-reaper-poc/internal/flags"
-	"github.com/itsHabib/saas-reaper-poc/internal/snapshot"
-	"github.com/itsHabib/saas-reaper-poc/internal/store/memory"
+	"github.com/itsHabib/saas-reaper/internal/api"
+	"github.com/itsHabib/saas-reaper/internal/flags"
+	"github.com/itsHabib/saas-reaper/internal/snapshot"
+	"github.com/itsHabib/saas-reaper/internal/store/memory"
 )
 
 const (

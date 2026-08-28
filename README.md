@@ -3,7 +3,7 @@
 > Every subscription has an expiration date. Yours is today.
 
 <p align="center">
-  <img src="docs/assets/reaper.svg" alt="A goofy little reaper blob holds a scythe beside a tombstone reading R.I.P. per-seat pricing" width="560">
+  <img src="docs/assets/reaper.svg" alt="A goofy little armless reaper blob, its scythe leaning against it, beside a tombstone reading R.I.P. per-seat pricing" width="560">
 </p>
 
 SaaS Reaper composes customer choices into a complete, customer-owned SaaS

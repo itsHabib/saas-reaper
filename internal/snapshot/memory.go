@@ -4,7 +4,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/itsHabib/saas-reaper-poc/internal/flags"
+	"github.com/itsHabib/saas-reaper/internal/flags"
 )
 
 // Memory is a concurrency-safe in-process flag projection.

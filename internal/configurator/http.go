@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/itsHabib/saas-reaper-poc/internal/factory"
+	"github.com/itsHabib/saas-reaper/internal/factory"
 )
 
 const maxRecipeBytes = 1 << 20

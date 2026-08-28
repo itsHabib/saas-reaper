@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/itsHabib/saas-reaper-poc/internal/factory"
+	"github.com/itsHabib/saas-reaper/internal/factory"
 )
 
 func TestPageAndCatalog(t *testing.T) {

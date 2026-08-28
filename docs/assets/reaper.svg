@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 420" role="img" aria-label="A goofy little reaper blob holds a scythe beside a tombstone reading R.I.P. per-seat pricing">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 420" role="img" aria-label="A goofy little armless reaper blob, its scythe leaning against it, beside a tombstone reading R.I.P. per-seat pricing">
   <defs>
     <linearGradient id="robe" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#2a3040"/>
@@ -32,9 +32,9 @@
 
   <!-- scythe -->
   <g>
-    <line x1="168" y1="118" x2="222" y2="362" stroke="#5b4636" stroke-width="9" stroke-linecap="round"/>
-    <path d="M 168 118 C 224 70 310 76 356 122 C 302 102 226 108 176 142 z" fill="#c9d2dd"/>
-    <path d="M 168 118 C 224 70 310 76 356 122 C 342 108 318 98 294 92 C 250 84 202 96 168 118 z" fill="#eef2f6"/>
+    <line x1="158" y1="112" x2="212" y2="362" stroke="#5b4636" stroke-width="9" stroke-linecap="round"/>
+    <path d="M 158 112 C 214 64 300 70 346 116 C 292 96 216 102 166 136 z" fill="#c9d2dd"/>
+    <path d="M 158 112 C 214 64 300 70 346 116 C 332 102 308 92 284 86 C 240 78 192 90 158 112 z" fill="#eef2f6"/>
   </g>
 
   <!-- reaper: unassuming blob -->
@@ -49,10 +49,5 @@
     <path d="M 288 134 C 264 138 254 162 258 182 C 274 194 304 190 314 174 C 316 152 306 134 288 134 z" fill="#07090c"/>
     <circle cx="280" cy="162" r="5" fill="#7ef0a8"/>
     <circle cx="300" cy="160" r="5" fill="#7ef0a8"/>
-    <!-- little arm holding the scythe -->
-    <path d="M 236 224 C 220 218 206 210 198 200 C 190 190 200 178 210 186 C 220 196 232 206 244 210 z" fill="#1b202b"/>
-    <circle cx="201" cy="192" r="10" fill="#3a4252"/>
-    <!-- stubby waving arm -->
-    <path d="M 330 220 C 344 214 354 204 358 194 C 362 184 352 176 344 184 C 338 194 330 202 322 208 z" fill="#1b202b"/>
   </g>
 </svg>
