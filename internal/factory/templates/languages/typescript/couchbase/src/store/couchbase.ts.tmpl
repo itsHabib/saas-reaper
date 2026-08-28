@@ -1,0 +1,277 @@
+import {
+  BucketExistsError,
+  BucketType,
+  CasMismatchError,
+  CollectionExistsError,
+  DocumentExistsError,
+  DocumentNotFoundError,
+  QueryScanConsistency,
+  ScopeExistsError,
+  connect,
+} from "couchbase";
+import type { Bucket, Cas, Cluster, Collection } from "couchbase";
+
+import type { AuditEntry } from "../flags/audit.ts";
+import type { Flag } from "../flags/flag.ts";
+import { RevisionConflict } from "../flags/revision.ts";
+
+const defaultBucket = "reaper";
+const scopeName = "reaper";
+const flagsCollection = "flags";
+const countersCollection = "counters";
+const sequenceKey = "audit-sequence";
+const readinessTimeoutMilliseconds = 120_000;
+
+interface FlagDocument {
+  environment: string;
+  key: string;
+  revision: number;
+  definition: Flag;
+  audit: AuditEntry[];
+}
+
+export function openAuthority(): CouchbaseAuthority {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required");
+  }
+  return new CouchbaseAuthority(connectionString);
+}
+
+export class CouchbaseAuthority {
+  readonly #endpoint: URL;
+  readonly #bucketName: string;
+  #cluster: Cluster | undefined;
+  #bucket: Bucket | undefined;
+
+  constructor(connectionString: string) {
+    this.#endpoint = new URL(connectionString);
+    if (this.#endpoint.protocol !== "couchbase:" && this.#endpoint.protocol !== "couchbases:") {
+      throw new Error(`connection string scheme ${this.#endpoint.protocol} is not couchbase or couchbases`);
+    }
+    this.#bucketName =
+      this.#endpoint.pathname.replaceAll("/", "") || process.env.COUCHBASE_BUCKET || defaultBucket;
+  }
+
+  async initialize(): Promise<void> {
+    const username = decodeURIComponent(this.#endpoint.username) || process.env.COUCHBASE_USERNAME;
+    const password = decodeURIComponent(this.#endpoint.password) || process.env.COUCHBASE_PASSWORD;
+    if (!username || !password) {
+      throw new Error(
+        "couchbase credentials are required in DATABASE_URL or COUCHBASE_USERNAME and COUCHBASE_PASSWORD",
+      );
+    }
+    const deadline = Date.now() + readinessTimeoutMilliseconds;
+    this.#cluster = await connect(`${this.#endpoint.protocol}//${this.#endpoint.host}`, {
+      username,
+      password,
+    });
+    await this.#ensureBucket(this.#cluster, deadline);
+    this.#bucket = this.#cluster.bucket(this.#bucketName);
+    await this.#bucket.waitUntilReady(deadline - Date.now());
+    await this.#ensureCollections(this.#bucket);
+    await this.#ensurePrimaryIndex(this.#cluster, deadline);
+  }
+
+  async #ensureBucket(cluster: Cluster, deadline: number): Promise<void> {
+    for (;;) {
+      try {
+        await cluster.buckets().createBucket({
+          name: this.#bucketName,
+          bucketType: BucketType.Couchbase,
+          ramQuotaMB: 256,
+          numReplicas: 0,
+        });
+        return;
+      } catch (error) {
+        if (error instanceof BucketExistsError) {
+          return;
+        }
+        if (Date.now() > deadline) {
+          throw error;
+        }
+        await sleep(1000);
+      }
+    }
+  }
+
+  async #ensureCollections(bucket: Bucket): Promise<void> {
+    const manager = bucket.collections();
+    try {
+      await manager.createScope(scopeName);
+    } catch (error) {
+      if (!(error instanceof ScopeExistsError)) {
+        throw error;
+      }
+    }
+    for (const collection of [flagsCollection, countersCollection]) {
+      try {
+        await manager.createCollection(collection, scopeName);
+      } catch (error) {
+        if (!(error instanceof CollectionExistsError)) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  async #ensurePrimaryIndex(cluster: Cluster, deadline: number): Promise<void> {
+    const statement =
+      `CREATE PRIMARY INDEX IF NOT EXISTS ON \`${this.#bucketName}\`.\`${scopeName}\`.\`${flagsCollection}\``;
+    for (;;) {
+      try {
+        await cluster.query(statement);
+        return;
+      } catch (error) {
+        if (Date.now() > deadline) {
+          throw error;
+        }
+        await sleep(1000);
+      }
+    }
+  }
+
+  async load(environment: string, key: string): Promise<Flag | undefined> {
+    try {
+      const result = await this.#flags().get(documentKey(environment, key));
+      const document = result.content as FlagDocument;
+      return document.definition;
+    } catch (error) {
+      if (error instanceof DocumentNotFoundError) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  async publish(environment: string, flag: Flag, expectedRevision: number, actor: string): Promise<Flag> {
+    const current = await this.#readDocument(environment, flag.key);
+    requireRevision(current?.document.revision, expectedRevision);
+    const published = { ...flag, revision: expectedRevision + 1, updatedAt: new Date().toISOString() };
+    const sequence = await this.#nextSequence();
+    const document: FlagDocument = {
+      environment,
+      key: flag.key,
+      revision: published.revision,
+      definition: published,
+      audit: [
+        ...(current?.document.audit ?? []),
+        {
+          sequence,
+          environment,
+          key: flag.key,
+          revision: published.revision,
+          actor,
+          occurredAt: published.updatedAt,
+        },
+      ],
+    };
+    if (current === undefined) {
+      await this.#insertDocument(environment, flag.key, document);
+      return published;
+    }
+    await this.#replaceDocument(environment, flag.key, document, current.cas);
+    return published;
+  }
+
+  async #readDocument(
+    environment: string,
+    key: string,
+  ): Promise<{ document: FlagDocument; cas: Cas } | undefined> {
+    try {
+      const result = await this.#flags().get(documentKey(environment, key));
+      return { document: result.content as FlagDocument, cas: result.cas };
+    } catch (error) {
+      if (error instanceof DocumentNotFoundError) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  async #insertDocument(environment: string, key: string, document: FlagDocument): Promise<void> {
+    try {
+      await this.#flags().insert(documentKey(environment, key), document);
+    } catch (error) {
+      if (error instanceof DocumentExistsError) {
+        throw new RevisionConflict("flag was created concurrently");
+      }
+      throw error;
+    }
+  }
+
+  async #replaceDocument(environment: string, key: string, document: FlagDocument, cas: Cas): Promise<void> {
+    try {
+      await this.#flags().replace(documentKey(environment, key), document, { cas });
+    } catch (error) {
+      if (error instanceof CasMismatchError || error instanceof DocumentExistsError) {
+        throw new RevisionConflict("flag was updated concurrently");
+      }
+      throw error;
+    }
+  }
+
+  async #nextSequence(): Promise<number> {
+    const result = await this.#counters().binary().increment(sequenceKey, 1, { initial: 1 });
+    return result.value;
+  }
+
+  async audit(limit: number): Promise<AuditEntry[]> {
+    const cluster = this.#requireCluster();
+    const statement =
+      `SELECT entry.* FROM \`${this.#bucketName}\`.\`${scopeName}\`.\`${flagsCollection}\` AS flag` +
+      " UNNEST flag.audit AS entry ORDER BY entry.sequence DESC LIMIT $limit";
+    const result = await cluster.query<AuditEntry>(statement, {
+      parameters: { limit },
+      scanConsistency: QueryScanConsistency.RequestPlus,
+    });
+    return result.rows;
+  }
+
+  async close(): Promise<void> {
+    if (this.#cluster === undefined) {
+      return;
+    }
+    await this.#cluster.close();
+  }
+
+  #requireCluster(): Cluster {
+    if (this.#cluster === undefined) {
+      throw new Error("couchbase authority is not initialized");
+    }
+    return this.#cluster;
+  }
+
+  #requireBucket(): Bucket {
+    if (this.#bucket === undefined) {
+      throw new Error("couchbase authority is not initialized");
+    }
+    return this.#bucket;
+  }
+
+  #flags(): Collection {
+    return this.#requireBucket().scope(scopeName).collection(flagsCollection);
+  }
+
+  #counters(): Collection {
+    return this.#requireBucket().scope(scopeName).collection(countersCollection);
+  }
+}
+
+function documentKey(environment: string, key: string): string {
+  return `flag::${environment}::${key}`;
+}
+
+function requireRevision(current: number | undefined, expected: number): void {
+  if (current === undefined && expected === 0) {
+    return;
+  }
+  if (current === expected) {
+    return;
+  }
+  throw new RevisionConflict(`expected revision ${expected}, current revision ${current ?? 0}`);
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}

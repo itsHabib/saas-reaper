@@ -35,8 +35,9 @@ make check
 {{if eq .Recipe.Database.Authority "sqlite"}}make demo
 {{end}}{{if eq .Recipe.Database.Authority "postgres"}}DATABASE_URL=postgresql://user:password@localhost/database make demo
 {{end}}{{if eq .Recipe.Database.Authority "mongodb"}}DATABASE_URL=mongodb://localhost:27017/reaper?replicaSet=rs0 make demo
+{{end}}{{if eq .Recipe.Database.Authority "couchbase"}}DATABASE_URL=couchbase://user:password@localhost/bucket make demo
 {{end}}```
 
-{{if eq .Recipe.Database.Authority "postgres"}}Use only a disposable PostgreSQL database. {{end}}{{if eq .Recipe.Database.Authority "mongodb"}}Use only a disposable MongoDB replica set. {{end}}Completion requires the green and red evidence
+{{if eq .Recipe.Database.Authority "postgres"}}Use only a disposable PostgreSQL database. {{end}}{{if eq .Recipe.Database.Authority "mongodb"}}Use only a disposable MongoDB replica set. {{end}}{{if eq .Recipe.Database.Authority "couchbase"}}Use only a disposable Couchbase bucket. {{end}}Completion requires the green and red evidence
 named in `WORK.md`, the applicable commands above, and no unrelated capability
 expansion.

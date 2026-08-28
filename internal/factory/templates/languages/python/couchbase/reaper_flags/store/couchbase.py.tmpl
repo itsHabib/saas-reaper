@@ -1,0 +1,296 @@
+from __future__ import annotations
+
+import contextlib
+import os
+import time
+from typing import Any
+from urllib.parse import unquote, urlsplit
+
+from couchbase.auth import PasswordAuthenticator  # type: ignore[import-untyped]
+from couchbase.cluster import Cluster  # type: ignore[import-untyped]
+from couchbase.collection import Collection  # type: ignore[import-untyped]
+from couchbase.exceptions import (  # type: ignore[import-untyped]
+    BucketAlreadyExistsException,
+    CasMismatchException,
+    CollectionAlreadyExistsException,
+    CouchbaseException,
+    DocumentExistsException,
+    DocumentNotFoundException,
+    ScopeAlreadyExistsException,
+)
+from couchbase.management.buckets import (  # type: ignore[import-untyped]
+    BucketType,
+    CreateBucketSettings,
+)
+from couchbase.n1ql import QueryScanConsistency  # type: ignore[import-untyped]
+from couchbase.options import (  # type: ignore[import-untyped]
+    ClusterOptions,
+    DeltaValue,
+    IncrementOptions,
+    QueryOptions,
+    ReplaceOptions,
+    SignedInt64,
+)
+
+from reaper_flags.flags.audit import AuditEntry
+from reaper_flags.flags.flag import Flag, from_record, publish_revision, to_record
+from reaper_flags.flags.revision import RevisionConflict
+
+DEFAULT_BUCKET = "reaper"
+SCOPE_NAME = "reaper"
+FLAGS_COLLECTION = "flags"
+COUNTERS_COLLECTION = "counters"
+SEQUENCE_KEY = "audit-sequence"
+READINESS_TIMEOUT_SECONDS = 120.0
+
+
+def open_authority() -> CouchbaseAuthority:
+    connection_string = os.environ.get("DATABASE_URL")
+    if not connection_string:
+        raise ValueError("DATABASE_URL is required")
+    return CouchbaseAuthority(connection_string)
+
+
+class CouchbaseAuthority:
+    def __init__(self, connection_string: str) -> None:
+        endpoint = urlsplit(connection_string)
+        if endpoint.scheme not in ("couchbase", "couchbases"):
+            raise ValueError(
+                f"connection string scheme {endpoint.scheme!r} is not couchbase or couchbases"
+            )
+        self.username = (
+            unquote(endpoint.username or "") or os.environ.get("COUCHBASE_USERNAME") or ""
+        )
+        self.password = (
+            unquote(endpoint.password or "") or os.environ.get("COUCHBASE_PASSWORD") or ""
+        )
+        if not self.username or not self.password:
+            raise ValueError(
+                "couchbase credentials are required in DATABASE_URL"
+                " or COUCHBASE_USERNAME and COUCHBASE_PASSWORD"
+            )
+        self.bucket_name = (
+            endpoint.path.strip("/") or os.environ.get("COUCHBASE_BUCKET") or DEFAULT_BUCKET
+        )
+        host = endpoint.hostname or "127.0.0.1"
+        if endpoint.port is not None:
+            host = f"{host}:{endpoint.port}"
+        self.endpoint = f"{endpoint.scheme}://{host}"
+        self.cluster: Any = None
+        self.bucket: Any = None
+
+    def initialize(self) -> None:
+        deadline = time.monotonic() + READINESS_TIMEOUT_SECONDS
+        self.cluster = Cluster.connect(
+            self.endpoint,
+            ClusterOptions(PasswordAuthenticator(self.username, self.password)),
+        )
+        self._ensure_bucket(deadline)
+        self.bucket = self.cluster.bucket(self.bucket_name)
+        self._ensure_collections(deadline)
+        self._ensure_primary_index(deadline)
+
+    def _ensure_bucket(self, deadline: float) -> None:
+        settings = CreateBucketSettings(
+            name=self.bucket_name,
+            bucket_type=BucketType.COUCHBASE,
+            ram_quota_mb=256,
+            num_replicas=0,
+        )
+        while True:
+            try:
+                self.cluster.buckets().create_bucket(settings)
+                return
+            except BucketAlreadyExistsException:
+                return
+            except CouchbaseException:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(1.0)
+
+    def _ensure_collections(self, deadline: float) -> None:
+        manager = self.bucket.collections()
+        self._retry_until(deadline, lambda: self._create_scope(manager))
+        for collection in (FLAGS_COLLECTION, COUNTERS_COLLECTION):
+            self._retry_until(
+                deadline,
+                lambda name=collection: self._create_collection(manager, name),
+            )
+
+    @staticmethod
+    def _create_scope(manager: Any) -> None:
+        with contextlib.suppress(ScopeAlreadyExistsException):
+            manager.create_scope(SCOPE_NAME)
+
+    @staticmethod
+    def _create_collection(manager: Any, name: str) -> None:
+        with contextlib.suppress(CollectionAlreadyExistsException):
+            manager.create_collection(SCOPE_NAME, name)
+
+    @staticmethod
+    def _retry_until(deadline: float, operation: Any) -> None:
+        while True:
+            try:
+                operation()
+                return
+            except CouchbaseException:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(1.0)
+
+    def _ensure_primary_index(self, deadline: float) -> None:
+        statement = (
+            f"CREATE PRIMARY INDEX IF NOT EXISTS"
+            f" ON `{self.bucket_name}`.`{SCOPE_NAME}`.`{FLAGS_COLLECTION}`"
+        )
+        while True:
+            try:
+                self.cluster.query(statement).execute()
+                return
+            except CouchbaseException:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(1.0)
+
+    def load(self, environment: str, key: str) -> Flag | None:
+        try:
+            result = self._flags().get(document_key(environment, key))
+        except DocumentNotFoundException:
+            return None
+        document = result.content_as[dict]
+        return from_record(document["definition"])
+
+    def publish(
+        self,
+        environment: str,
+        flag: Flag,
+        expected_revision: int,
+        actor: str,
+    ) -> Flag:
+        current = self._read_document(environment, flag.key)
+        current_revision = None
+        if current is not None:
+            current_revision = int(current[0]["revision"])
+        require_revision(current_revision, expected_revision)
+        published = publish_revision(flag, expected_revision + 1)
+        sequence = self._next_sequence()
+        history: list[dict[str, Any]] = []
+        if current is not None:
+            history = list(current[0]["audit"])
+        document = {
+            "environment": environment,
+            "key": flag.key,
+            "revision": published.revision,
+            "definition": to_record(published),
+            "audit": [
+                *history,
+                {
+                    "sequence": sequence,
+                    "environment": environment,
+                    "key": flag.key,
+                    "revision": published.revision,
+                    "actor": actor,
+                    "occurredAt": published.updated_at,
+                },
+            ],
+        }
+        if current is None:
+            self._insert_document(environment, flag.key, document)
+            return published
+        self._replace_document(environment, flag.key, document, current[1])
+        return published
+
+    def _read_document(
+        self,
+        environment: str,
+        key: str,
+    ) -> tuple[dict[str, Any], Any] | None:
+        try:
+            result = self._flags().get(document_key(environment, key))
+        except DocumentNotFoundException:
+            return None
+        return result.content_as[dict], result.cas
+
+    def _insert_document(self, environment: str, key: str, document: dict[str, Any]) -> None:
+        try:
+            self._flags().insert(document_key(environment, key), document)
+        except DocumentExistsException as error:
+            raise RevisionConflict("flag was created concurrently") from error
+
+    def _replace_document(
+        self,
+        environment: str,
+        key: str,
+        document: dict[str, Any],
+        cas: Any,
+    ) -> None:
+        try:
+            self._flags().replace(
+                document_key(environment, key),
+                document,
+                ReplaceOptions(cas=cas),
+            )
+        except (CasMismatchException, DocumentExistsException) as error:
+            raise RevisionConflict("flag was updated concurrently") from error
+
+    def _next_sequence(self) -> int:
+        result = (
+            self._counters()
+            .binary()
+            .increment(
+                SEQUENCE_KEY,
+                IncrementOptions(initial=SignedInt64(1), delta=DeltaValue(1)),
+            )
+        )
+        return int(result.content)
+
+    def audit(self, limit: int) -> list[AuditEntry]:
+        statement = (
+            # Identifiers are deployment configuration; request values bind as parameters.
+            f"SELECT entry.* FROM `{self.bucket_name}`.`{SCOPE_NAME}`.`{FLAGS_COLLECTION}` AS flag"  # noqa: S608
+            " UNNEST flag.audit AS entry ORDER BY entry.sequence DESC LIMIT $limit"
+        )
+        result = self.cluster.query(
+            statement,
+            QueryOptions(
+                named_parameters={"limit": limit},
+                scan_consistency=QueryScanConsistency.REQUEST_PLUS,
+            ),
+        )
+        return [
+            AuditEntry(
+                sequence=int(row["sequence"]),
+                environment=str(row["environment"]),
+                key=str(row["key"]),
+                revision=int(row["revision"]),
+                actor=str(row["actor"]),
+                occurred_at=str(row["occurredAt"]),
+            )
+            for row in result.rows()
+        ]
+
+    def close(self) -> None:
+        if self.cluster is None:
+            return
+        self.cluster.close()
+
+    def _flags(self) -> Collection:
+        return self.bucket.scope(SCOPE_NAME).collection(FLAGS_COLLECTION)
+
+    def _counters(self) -> Collection:
+        return self.bucket.scope(SCOPE_NAME).collection(COUNTERS_COLLECTION)
+
+
+def document_key(environment: str, key: str) -> str:
+    return f"flag::{environment}::{key}"
+
+
+def require_revision(current: int | None, expected: int) -> None:
+    if current is None and expected == 0:
+        return
+    if current == expected:
+        return
+    actual = 0
+    if current is not None:
+        actual = current
+    raise RevisionConflict(f"expected revision {expected}, current revision {actual}")

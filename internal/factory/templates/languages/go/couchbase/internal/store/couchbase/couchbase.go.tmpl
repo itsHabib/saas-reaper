@@ -1,0 +1,338 @@
+// Package couchbase provides the external durable authority.
+package couchbase
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+
+	"example.com/{{.Recipe.Name}}/internal/flags"
+	"github.com/couchbase/gocb/v2"
+)
+
+const (
+	defaultBucket      = "reaper"
+	scopeName          = "reaper"
+	flagsCollection    = "flags"
+	countersCollection = "counters"
+	sequenceKey        = "audit-sequence"
+	readinessTimeout   = 2 * time.Minute
+)
+
+// flagDocument is the single atomic unit of persistence: the authoritative
+// definition and its full audit history live in one document, so a publish
+// commits the definition and its audit entry in one CAS-protected write.
+type flagDocument struct {
+	Environment string             `json:"environment"`
+	Key         string             `json:"key"`
+	Revision    int64              `json:"revision"`
+	Definition  json.RawMessage    `json:"definition"`
+	Audit       []flags.AuditEntry `json:"audit"`
+}
+
+type Authority struct {
+	cluster    *gocb.Cluster
+	bucket     *gocb.Bucket
+	bucketName string
+}
+
+func OpenFromEnvironment(ctx context.Context) (*Authority, error) {
+	connectionString := os.Getenv("DATABASE_URL")
+	if connectionString == "" {
+		return nil, errors.New("DATABASE_URL is required")
+	}
+	return Open(ctx, connectionString)
+}
+
+func Open(_ context.Context, connectionString string) (*Authority, error) {
+	endpoint, err := url.Parse(connectionString)
+	if err != nil {
+		return nil, fmt.Errorf("parse couchbase connection string: %w", err)
+	}
+	if endpoint.Scheme != "couchbase" && endpoint.Scheme != "couchbases" {
+		return nil, fmt.Errorf("connection string scheme %q is not couchbase or couchbases", endpoint.Scheme)
+	}
+	username := endpoint.User.Username()
+	if username == "" {
+		username = os.Getenv("COUCHBASE_USERNAME")
+	}
+	password, _ := endpoint.User.Password()
+	if password == "" {
+		password = os.Getenv("COUCHBASE_PASSWORD")
+	}
+	if username == "" || password == "" {
+		return nil, errors.New("couchbase credentials are required in DATABASE_URL or COUCHBASE_USERNAME and COUCHBASE_PASSWORD")
+	}
+	bucketName := strings.Trim(endpoint.Path, "/")
+	if bucketName == "" {
+		bucketName = os.Getenv("COUCHBASE_BUCKET")
+	}
+	if bucketName == "" {
+		bucketName = defaultBucket
+	}
+	cluster, err := gocb.Connect(endpoint.Scheme+"://"+endpoint.Host, gocb.ClusterOptions{
+		Authenticator: gocb.PasswordAuthenticator{Username: username, Password: password},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("open couchbase: %w", err)
+	}
+	return &Authority{cluster: cluster, bucketName: bucketName}, nil
+}
+
+func (a *Authority) Initialize(ctx context.Context) error {
+	deadline := time.Now().Add(readinessTimeout)
+	if err := a.ensureBucket(ctx, deadline); err != nil {
+		return err
+	}
+	a.bucket = a.cluster.Bucket(a.bucketName)
+	if err := a.bucket.WaitUntilReady(time.Until(deadline), &gocb.WaitUntilReadyOptions{Context: ctx}); err != nil {
+		return fmt.Errorf("wait for couchbase bucket: %w", err)
+	}
+	if err := a.ensureCollections(ctx); err != nil {
+		return err
+	}
+	return a.ensurePrimaryIndex(ctx, deadline)
+}
+
+func (a *Authority) ensureBucket(ctx context.Context, deadline time.Time) error {
+	settings := gocb.CreateBucketSettings{
+		BucketSettings: gocb.BucketSettings{
+			Name:       a.bucketName,
+			BucketType: gocb.CouchbaseBucketType,
+			RAMQuotaMB: 256,
+		},
+	}
+	for {
+		err := a.cluster.Buckets().CreateBucket(settings, &gocb.CreateBucketOptions{Context: ctx})
+		if err == nil || errors.Is(err, gocb.ErrBucketExists) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("create couchbase bucket: %w", err)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+func (a *Authority) ensureCollections(ctx context.Context) error {
+	manager := a.bucket.CollectionsV2()
+	err := manager.CreateScope(scopeName, &gocb.CreateScopeOptions{Context: ctx})
+	if err != nil && !errors.Is(err, gocb.ErrScopeExists) {
+		return fmt.Errorf("create couchbase scope: %w", err)
+	}
+	for _, collection := range []string{flagsCollection, countersCollection} {
+		err := manager.CreateCollection(scopeName, collection, nil, &gocb.CreateCollectionOptions{Context: ctx})
+		if err != nil && !errors.Is(err, gocb.ErrCollectionExists) {
+			return fmt.Errorf("create couchbase collection %s: %w", collection, err)
+		}
+	}
+	return nil
+}
+
+func (a *Authority) ensurePrimaryIndex(ctx context.Context, deadline time.Time) error {
+	statement := fmt.Sprintf(
+		"CREATE PRIMARY INDEX IF NOT EXISTS ON `%s`.`%s`.`%s`",
+		a.bucketName,
+		scopeName,
+		flagsCollection,
+	)
+	for {
+		_, err := a.cluster.Query(statement, &gocb.QueryOptions{Context: ctx})
+		if err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("create couchbase primary index: %w", err)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+func (a *Authority) Close() error {
+	return a.cluster.Close(nil)
+}
+
+func (a *Authority) Load(ctx context.Context, environment, key string) (flags.Flag, error) {
+	result, err := a.flags().Get(documentKey(environment, key), &gocb.GetOptions{Context: ctx})
+	if errors.Is(err, gocb.ErrDocumentNotFound) {
+		return flags.Flag{}, fmt.Errorf("%w: %s", flags.ErrNotFound, key)
+	}
+	if err != nil {
+		return flags.Flag{}, fmt.Errorf("load flag: %w", err)
+	}
+	var document flagDocument
+	if err := result.Content(&document); err != nil {
+		return flags.Flag{}, fmt.Errorf("decode flag document: %w", err)
+	}
+	return flags.Decode(document.Definition)
+}
+
+func (a *Authority) Publish(
+	ctx context.Context,
+	environment string,
+	flag flags.Flag,
+	expectedRevision int64,
+	actor string,
+) (flags.Flag, error) {
+	current, cas, exists, err := a.readDocument(ctx, environment, flag.Key)
+	if err != nil {
+		return flags.Flag{}, err
+	}
+	if !exists && expectedRevision != 0 {
+		return flags.Flag{}, conflict(expectedRevision, 0)
+	}
+	if exists && current.Revision != expectedRevision {
+		return flags.Flag{}, conflict(expectedRevision, current.Revision)
+	}
+	flag.Revision = expectedRevision + 1
+	flag.UpdatedAt = time.Now().UTC()
+	sequence, err := a.nextSequence(ctx)
+	if err != nil {
+		return flags.Flag{}, err
+	}
+	document, err := newDocument(environment, flag, current.Audit, sequence, actor)
+	if err != nil {
+		return flags.Flag{}, err
+	}
+	if !exists {
+		return flag, a.insertDocument(ctx, environment, flag.Key, document)
+	}
+	return flag, a.replaceDocument(ctx, environment, flag.Key, document, cas)
+}
+
+func newDocument(
+	environment string,
+	flag flags.Flag,
+	history []flags.AuditEntry,
+	sequence int64,
+	actor string,
+) (flagDocument, error) {
+	definition, err := json.Marshal(flag)
+	if err != nil {
+		return flagDocument{}, fmt.Errorf("encode flag: %w", err)
+	}
+	return flagDocument{
+		Environment: environment,
+		Key:         flag.Key,
+		Revision:    flag.Revision,
+		Definition:  definition,
+		Audit: append(history, flags.AuditEntry{
+			Sequence:    sequence,
+			Environment: environment,
+			Key:         flag.Key,
+			Revision:    flag.Revision,
+			Actor:       actor,
+			OccurredAt:  flag.UpdatedAt,
+		}),
+	}, nil
+}
+
+func (a *Authority) readDocument(
+	ctx context.Context,
+	environment string,
+	key string,
+) (flagDocument, gocb.Cas, bool, error) {
+	result, err := a.flags().Get(documentKey(environment, key), &gocb.GetOptions{Context: ctx})
+	if errors.Is(err, gocb.ErrDocumentNotFound) {
+		return flagDocument{}, 0, false, nil
+	}
+	if err != nil {
+		return flagDocument{}, 0, false, fmt.Errorf("read flag document: %w", err)
+	}
+	var document flagDocument
+	if err := result.Content(&document); err != nil {
+		return flagDocument{}, 0, false, fmt.Errorf("decode flag document: %w", err)
+	}
+	return document, result.Cas(), true, nil
+}
+
+func (a *Authority) insertDocument(ctx context.Context, environment, key string, document flagDocument) error {
+	_, err := a.flags().Insert(documentKey(environment, key), document, &gocb.InsertOptions{Context: ctx})
+	if errors.Is(err, gocb.ErrDocumentExists) {
+		return fmt.Errorf("%w: flag was created concurrently", flags.ErrConflict)
+	}
+	if err != nil {
+		return fmt.Errorf("create flag: %w", err)
+	}
+	return nil
+}
+
+func (a *Authority) replaceDocument(
+	ctx context.Context,
+	environment string,
+	key string,
+	document flagDocument,
+	cas gocb.Cas,
+) error {
+	_, err := a.flags().Replace(documentKey(environment, key), document, &gocb.ReplaceOptions{Cas: cas, Context: ctx})
+	if errors.Is(err, gocb.ErrCasMismatch) || errors.Is(err, gocb.ErrDocumentExists) {
+		return fmt.Errorf("%w: flag was updated concurrently", flags.ErrConflict)
+	}
+	if err != nil {
+		return fmt.Errorf("update flag: %w", err)
+	}
+	return nil
+}
+
+func (a *Authority) nextSequence(ctx context.Context) (int64, error) {
+	result, err := a.counters().Binary().Increment(sequenceKey, &gocb.IncrementOptions{
+		Initial: 1,
+		Delta:   1,
+		Context: ctx,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("allocate audit sequence: %w", err)
+	}
+	return int64(result.Content()), nil //nolint:gosec // The sequence counter stays far below the int64 ceiling.
+}
+
+func (a *Authority) Audit(ctx context.Context, limit int) ([]flags.AuditEntry, error) {
+	statement := fmt.Sprintf(
+		"SELECT entry.* FROM `%s`.`%s`.`%s` AS flag UNNEST flag.audit AS entry"+
+			" ORDER BY entry.sequence DESC LIMIT $limit",
+		a.bucketName,
+		scopeName,
+		flagsCollection,
+	)
+	result, err := a.cluster.Query(statement, &gocb.QueryOptions{
+		Context:         ctx,
+		ScanConsistency: gocb.QueryScanConsistencyRequestPlus,
+		NamedParameters: map[string]interface{}{"limit": limit},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query audit: %w", err)
+	}
+	entries := make([]flags.AuditEntry, 0, limit)
+	for result.Next() {
+		var entry flags.AuditEntry
+		if err := result.Row(&entry); err != nil {
+			return nil, fmt.Errorf("decode audit row: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+	if err := result.Err(); err != nil {
+		return nil, fmt.Errorf("iterate audit: %w", err)
+	}
+	return entries, nil
+}
+
+func (a *Authority) flags() *gocb.Collection {
+	return a.bucket.Scope(scopeName).Collection(flagsCollection)
+}
+
+func (a *Authority) counters() *gocb.Collection {
+	return a.bucket.Scope(scopeName).Collection(countersCollection)
+}
+
+func documentKey(environment, key string) string {
+	return "flag::" + environment + "::" + key
+}
+
+func conflict(expected, current int64) error {
+	return fmt.Errorf("%w: expected revision %d, current revision %d", flags.ErrConflict, expected, current)
+}

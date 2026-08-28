@@ -32,15 +32,17 @@ make demo
 DATABASE_URL=postgresql://user:password@localhost/database make demo
 {{end}}{{if eq .Recipe.Database.Authority "mongodb"}}
 DATABASE_URL='mongodb://localhost:27017/reaper?replicaSet=rs0' make demo
+{{end}}{{if eq .Recipe.Database.Authority "couchbase"}}
+DATABASE_URL=couchbase://user:password@localhost/bucket make demo
 {{end}}
 ```
 
 The demo starts the service, publishes a boolean flag, evaluates a targeting
 match over the OFREP-compatible HTTP surface, and stops the service. A
-PostgreSQL demo must use a disposable database; never point it at production.
-A MongoDB demo needs a disposable replica set (a single-node `--replSet rs0`
-works) because publishes commit the definition and audit entry in one
-multi-document transaction.
+PostgreSQL or Couchbase demo must use a disposable database; never point it
+at production. A MongoDB demo needs a disposable replica set (a single-node
+`--replSet rs0` works) because publishes commit the definition and audit
+entry in one multi-document transaction.
 
 Run the repository checks:
 

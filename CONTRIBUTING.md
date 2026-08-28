@@ -81,13 +81,30 @@ and API invariants black-box — stale-revision rejection, exactly one winner
 under concurrent creation, authentication separation in both directions, one
 audit row per successful publish, and definition plus audit survival across a
 service restart on the same database. A new language pack must pass both
-unchanged. Databases that cannot run in the demo (today: PostgreSQL and
-MongoDB) still need white-box pack evidence such as the concurrent-create
-insert/duplicate-key contract tests, plus a documented container-backed run
-of the same black-box probes where a disposable container is practical
-(`docs/mongodb-live-proof.md` is the MongoDB recipe). Do not describe the
+unchanged. Databases that cannot run in the demo (today: PostgreSQL,
+MongoDB, and Couchbase) still need white-box pack evidence such as the
+concurrent-create insert/duplicate-key and insert/exists-error contract
+tests, plus a documented container-backed run of the same black-box probes
+where a disposable container is practical (`docs/mongodb-live-proof.md` is
+the MongoDB recipe; the Couchbase procedure follows). Do not describe the
 structural matrix plus these harnesses as complete semantic proof for a store
 the demo never boots.
+
+To repeat the Couchbase container evidence locally: start a disposable
+single-node server (`docker run --rm --detach --name reaper-couchbase
+--publish 8091-8096:8091-8096 --publish 11210:11210
+couchbase:community-7.6.2`), initialize it once with `couchbase-cli
+cluster-init --cluster 127.0.0.1:8091 --services data,index,query
+--cluster-ramsize 512 --cluster-index-ramsize 256 --cluster-username reaper
+--cluster-password reaper-local`, generate a repository from
+`recipes/go-couchbase-docker.yaml`, then run each harness against its own
+fresh bucket so the probes see an empty audit:
+`DATABASE_URL=couchbase://reaper:reaper-local@127.0.0.1/invariants
+bash scripts/invariants.sh <generated-dir> go 19210` and
+`DATABASE_URL=couchbase://reaper:reaper-local@127.0.0.1/conformance
+bash scripts/conformance.sh <generated-dir> go 19211` from the repository
+root. The generated service creates its bucket, scope, collections, and
+primary index on startup. Stop the container afterwards.
 
 Each rendered path has exactly one owning layer. The renderer rejects collisions
 instead of letting a later database or deployment pack silently overwrite a

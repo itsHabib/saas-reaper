@@ -158,6 +158,43 @@ func TestMongoDBPacksPreserveConcurrentCreateConflict(t *testing.T) {
 	}
 }
 
+func TestCouchbasePacksPreserveConcurrentCreateConflict(t *testing.T) {
+	packs := map[string]struct {
+		insertMarker   string
+		conflictMarker string
+	}{
+		"templates/languages/go/couchbase/internal/store/couchbase/couchbase.go.tmpl": {
+			insertMarker:   ".Insert(",
+			conflictMarker: "errors.Is(err, gocb.ErrDocumentExists)",
+		},
+		"templates/languages/typescript/couchbase/src/store/couchbase.ts.tmpl": {
+			insertMarker:   ".insert(",
+			conflictMarker: "error instanceof DocumentExistsError",
+		},
+		"templates/languages/python/couchbase/reaper_flags/store/couchbase.py.tmpl": {
+			insertMarker:   ".insert(",
+			conflictMarker: "DocumentExistsException",
+		},
+	}
+	for path, markers := range packs {
+		body, err := templateFiles.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := string(body)
+		for _, upsert := range []string{"Upsert(", "upsert("} {
+			if strings.Contains(source, upsert) {
+				t.Fatalf("%s turns concurrent creation into an upsert", path)
+			}
+		}
+		for _, required := range []string{markers.insertMarker, markers.conflictMarker} {
+			if !strings.Contains(source, required) {
+				t.Fatalf("%s is missing concurrent-create safeguard %q", path, required)
+			}
+		}
+	}
+}
+
 func assertTemplatesExclude(t *testing.T, root, fragment string) {
 	t.Helper()
 	err := fs.WalkDir(templateFiles, root, func(path string, entry fs.DirEntry, walkErr error) error {
