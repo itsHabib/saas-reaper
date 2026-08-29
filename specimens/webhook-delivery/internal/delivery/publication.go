@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -48,7 +49,7 @@ func NewService(
 	if store == nil {
 		return nil, fmt.Errorf("%w: management store is required", ErrInvalid)
 	}
-	if actor == "" {
+	if strings.TrimSpace(actor) == "" {
 		return nil, fmt.Errorf("%w: configured actor is required", ErrInvalid)
 	}
 	if now == nil || ids == nil || secret == nil || attempts == nil {

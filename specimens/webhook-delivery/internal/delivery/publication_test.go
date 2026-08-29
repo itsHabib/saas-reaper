@@ -70,6 +70,20 @@ func (m *managementMemory) Replay(_ context.Context, replay Delivery) error {
 	return nil
 }
 
+func TestServiceRejectsWhitespaceOnlyActor(t *testing.T) {
+	_, err := NewService(
+		&managementMemory{},
+		" \t\n",
+		time.Now,
+		func(string) (string, error) { return "unused", nil },
+		func() (string, error) { return testSecret, nil },
+		NewAttemptCoordinator(),
+	)
+	if err == nil {
+		t.Fatal("NewService accepted a whitespace-only configured actor")
+	}
+}
+
 func TestServicePreservesPayloadActorAndReplayIdentity(t *testing.T) {
 	store := &managementMemory{endpoints: []Endpoint{
 		{ID: "enabled", Enabled: true},

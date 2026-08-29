@@ -60,10 +60,13 @@ verifiers accept through local runnable proofs.
 - Reviewed: first `@codex review` round found response-start retry timing and
   graceful-shutdown audit loss; both were reproduced and fixed with focused
   race tests before the second exact-head review.
+- Reviewed: second `@codex review` round found stale paired agent guides and a
+  whitespace-only actor accepted at service construction; both were reproduced
+  and folded in the second and final allowed fix round.
 
 ## Handoff
 
-- Last: implementation, rejection controls, local proofs, and the first
-  adversarial fix pass are green without root-module or factory coupling.
-- Next: open the PR, request `@codex review`, fold at most two verified fix
-  rounds, and stop at the reviewed CI-green head without Gate or merge.
+- Last: the second and final review-fix round aligns the paired agent guides
+  with the two-specimen repository and rejects a blank configured principal.
+- Next: rerun every proof, push the exact head, request final `@codex review`,
+  and stop at the reviewed CI-green head without Gate or merge.
