@@ -1,80 +1,66 @@
 <!-- reaper-work:v1 -->
-# Work: Couchbase database pack
+# Work: Customer-owned webhook delivery specimen
 
-Work-ID: couchbase-database-pack
+Work-ID: webhook-delivery-specimen
 Status: active
-Subject: git:a9258ba86b4248aeb4990f3f8c88ca052db566ec
+Subject: git:6517797efde09c323f53c165899caf3bd15c5fbc
 Stop-at: reviewed-change
 
 ## Outcome
 
-The factory catalogs a shared `couchbase` database authority with template
-packs for Go, TypeScript, and Python that preserve optimistic revisions,
-insert-based concurrent creation, atomic definition-plus-audit publication,
-and restart durability, proven by the render matrix, the compose validation,
-and the black-box invariant and conformance harnesses against a local
-Couchbase container.
+An in-repository, customer-owned Go webhook-delivery specimen registers and
+disables endpoints, publishes exact payload bytes, signs Standard Webhooks
+deliveries, retries failures on a bounded schedule, replays messages, and
+persists an append-only attempt audit that official Go, JavaScript, and Python
+verifiers accept through local runnable proofs.
 
 ## Preserve
 
-- SQLite and PostgreSQL packs, evaluation semantics, and API behavior stay
-  byte-identical apart from pack-version metadata.
-- The conformance and invariant harnesses stay unchanged; Couchbase must pass
-  them as-is.
-- Root `AGENTS.md` and `CLAUDE.md` remain byte-identical and untouched.
+- The feature-flags golden specimen and factory output stay behaviorally unchanged.
+- `internal/factory/validate.go` continues to reject every capability other than `feature-flags`.
+- Policy, HTTP transport, persistence, and worker mechanisms remain one-way layers with consumer-owned interfaces.
+- Management and audit-read credentials stay separate; the configured principal supplies the audit actor.
+- Demo and CI delivery traffic stays on loopback and no external infrastructure is provisioned.
 
 ## Change
 
-- `internal/factory/catalog.go`: register the shared `couchbase` pack, add it
-  to every deployment carrying postgres, bump docker and aws-ec2 packs.
-- `internal/factory/templates/languages/go/couchbase/`: Go store pack with
-  gocb v2 and pinned manifests.
-- `internal/factory/templates/languages/typescript/couchbase/`: TypeScript
-  store pack with the couchbase SDK.
-- `internal/factory/templates/languages/python/couchbase/`: Python store pack
-  with the couchbase SDK.
-- `internal/factory/templates/deployments/docker/`: couchbase compose service
-  plus one-shot cluster-init.
-- `internal/factory/templates/deployments/aws-ec2/`: shared authorities use
-  the database-url secret branch.
-- `internal/factory/contract_test.go`: pin the insert/exists-error conflict
-  markers for all three couchbase stores.
-- `internal/factory/render.go`: bump `FactoryVersion`.
-- `REAPER.yaml`: catalog gains couchbase.
-- `recipes/`: go, typescript, and python couchbase-docker recipes.
-- `scripts/product-demo.sh`: generate, validate, and check couchbase repos.
-- `CONTRIBUTING.md`: record the local container-evidence procedure.
-- `WORK.md`: this contract.
+- `specimens/webhook-delivery/`: add the independent Go module, official verifier fixtures, local demo, invariant probes, and scoped checks.
+- `scripts/setup.sh`: install the nested specimen's pinned dependencies.
+- `scripts/check.sh`: include the nested module in the root verification floor.
+- `scripts/check-boundaries.sh`: exclude installed nested dependencies while continuing to scan authored specimen source.
+- `.gitignore`: keep nested verifier installations and bytecode out of the repository proof.
+- `Makefile`: expose webhook demo, invariant, and complete specimen proof targets.
+- `.github/workflows/ci.yml`: run the local-only webhook interoperability and invariant proof.
+- `README.md`: describe the second specimen, selection principle, runnable proof, and factory boundary honestly.
+- `WORK.md`: bind this exact task, proof, and stop boundary.
 
 ## Prove
 
-- Green: `make check` passes, including the new concurrent-create contract
-  test and the full render matrix with couchbase rows.
-- Green: `make product-demo` passes with couchbase compose validation and
-  setup-plus-check runs for all three couchbase language packs.
-- Green: `scripts/invariants.sh` and `scripts/conformance.sh` pass against a
-  generated Go/couchbase service on a local Couchbase container.
-- Red: a stale expectedRevision receives 409; the losing concurrent creator
-  receives 409 from the insert exists-error, never an upsert; the harness
-  fails if any audit row appears for a failed publish or is lost on restart.
+- Green: `make check` passes with nested Go race tests, lint, shell, TypeScript, Python, and boundary checks.
+- Green: `make webhook-demo` shows all three official verifier libraries accept real deliveries and reject a tampered signature.
+- Green: `make webhook-invariants` proves retry-after-failure, disabled silence, replay identity, restart durability, and token separation.
+- Red: a changed payload or signature is rejected, failed sends are audited before retry, and a forced audit insert failure cannot advance delivery state.
 
 ## Stop
 
-- Stop before booting Couchbase containers inside product-demo or CI; the
-  container evidence stays a documented local procedure.
-- Stop at a reviewed pull request; do not merge.
+- Stop if the nested module requires root import coupling, a `go.work`, or factory capability changes.
+- Stop before any non-loopback demo dependency, external infrastructure, Gate invocation, or merge.
+- Stop after two review-fix rounds even if a broader architectural finding remains.
 
 ## Evidence
 
-- Verified: `make check` green at this head.
-- Verified: `make product-demo` green with couchbase compose validation and
-  setup-plus-check for the go, typescript, and python couchbase repos.
-- Verified: local Couchbase container runs green — invariants for generated
-  go, typescript, and python services, conformance for go, and
-  `DATABASE_URL=... make demo` for the generated go repository.
+- Verified: root `make check`, `make demo`, and `make product-demo` pass.
+- Verified: nested `make check`, `make demo`, and `make invariants` pass; all
+  three official verifier libraries accept literal fixture bytes and reject
+  same-length signature tampering.
+- Verified: race tests cover both disable/send orderings, replay attribution
+  across a principal change, owner-only database mode, atomic audit rollback,
+  and destination-credential redaction from the read authority.
+- Reviewed: five adversarial findings were reproduced and folded before PR.
 
 ## Handoff
 
-- Last: packs implemented, verification bar green, container evidence
-  captured; the procedure is recorded in `CONTRIBUTING.md`.
-- Next: open the pull request, gather review, and fold findings.
+- Last: implementation, rejection controls, local proofs, and the first
+  adversarial fix pass are green without root-module or factory coupling.
+- Next: open the PR, request `@codex review`, fold at most two verified fix
+  rounds, and stop at the reviewed CI-green head without Gate or merge.
