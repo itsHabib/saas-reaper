@@ -88,7 +88,11 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go poller.Run(ctx)
+	pollerDone := make(chan struct{})
+	go func() {
+		defer close(pollerDone)
+		poller.Run(ctx)
+	}()
 	serverErrors := make(chan error, 1)
 	go func() {
 		slog.Info("reaper webhooks listening", "address", httpServer.Addr, "database", configuration.databasePath)
@@ -96,10 +100,15 @@ func run() error {
 	}()
 	select {
 	case <-ctx.Done():
-		shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		stop()
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		return httpServer.Shutdown(shutdownContext)
+		shutdownErr := httpServer.Shutdown(shutdownContext)
+		<-pollerDone
+		return shutdownErr
 	case listenErr := <-serverErrors:
+		stop()
+		<-pollerDone
 		if errors.Is(listenErr, http.ErrServerClosed) {
 			return nil
 		}

@@ -78,12 +78,23 @@ func TestSenderParsesRetryAfter(t *testing.T) {
 	tests := []struct {
 		name       string
 		retryAfter string
-		want       time.Duration
+		wantDelay  time.Duration
+		wantAt     time.Time
 	}{
-		{name: "delay seconds", retryAfter: "7", want: 7 * time.Second},
-		{name: "HTTP date", retryAfter: attemptedAt.Add(19 * time.Second).Format(http.TimeFormat), want: 19 * time.Second},
-		{name: "past HTTP date", retryAfter: attemptedAt.Add(-time.Second).Format(http.TimeFormat), want: 0},
-		{name: "invalid value", retryAfter: "tomorrow", want: 0},
+		{name: "delay seconds", retryAfter: "7", wantDelay: 7 * time.Second},
+		{
+			name: "huge delay seconds", retryAfter: "9223372036854775807",
+			wantDelay: time.Duration(1<<63 - 1),
+		},
+		{
+			name: "HTTP date", retryAfter: attemptedAt.Add(19 * time.Second).Format(http.TimeFormat),
+			wantAt: attemptedAt.Add(19 * time.Second),
+		},
+		{
+			name: "past HTTP date", retryAfter: attemptedAt.Add(-time.Second).Format(http.TimeFormat),
+			wantAt: attemptedAt.Add(-time.Second),
+		},
+		{name: "invalid value", retryAfter: "tomorrow"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -113,8 +124,14 @@ func TestSenderParsesRetryAfter(t *testing.T) {
 			if result.StatusCode != http.StatusServiceUnavailable {
 				t.Fatalf("status = %d, want %d", result.StatusCode, http.StatusServiceUnavailable)
 			}
-			if result.RetryAfter != test.want {
-				t.Fatalf("retry after = %s, want %s", result.RetryAfter, test.want)
+			if result.RetryAfter != test.wantDelay || !result.RetryAt.Equal(test.wantAt) {
+				t.Fatalf(
+					"retry after/at = %s/%s, want %s/%s",
+					result.RetryAfter,
+					result.RetryAt,
+					test.wantDelay,
+					test.wantAt,
+				)
 			}
 		})
 	}

@@ -68,7 +68,7 @@ func walkTransitions(schedule Schedule, current walkState) []walkState {
 	}
 	next := make([]walkState, 0, len(results))
 	for _, result := range results {
-		attempt := schedule.resolve(dispatch, result.result, result.err, now)
+		attempt := schedule.resolve(dispatch, result.result, result.err, now, now)
 		next = append(next, walkState{
 			state:    attempt.State,
 			attempts: attempt.Number,

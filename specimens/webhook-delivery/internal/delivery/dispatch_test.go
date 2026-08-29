@@ -36,6 +36,32 @@ type blockingSender struct {
 	release chan struct{}
 }
 
+type cancellationSender struct {
+	started chan struct{}
+}
+
+func (s *cancellationSender) Send(
+	ctx context.Context,
+	_ string,
+	_ []byte,
+	_ Headers,
+) (SendResult, error) {
+	close(s.started)
+	<-ctx.Done()
+	return SendResult{}, ctx.Err()
+}
+
+type cancellationStore struct {
+	dispatchMemory
+}
+
+func (s *cancellationStore) RecordAttempt(ctx context.Context, attempt Attempt) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.dispatchMemory.RecordAttempt(ctx, attempt)
+}
+
 func (s *blockingSender) Send(
 	context.Context,
 	string,
@@ -115,17 +141,23 @@ func TestDispatcherRecordsFailedAttemptBeforeRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	times := []time.Time{time.Unix(50, 0), time.Unix(50, 0), time.Unix(70, 0)}
+	clock := func() time.Time {
+		now := times[0]
+		times = times[1:]
+		return now
+	}
 	dispatcher, err := NewDispatcher(
 		store,
 		sender,
 		schedule,
-		func() time.Time { return time.Unix(50, 0) },
+		clock,
 		NewAttemptCoordinator(),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	count, err := dispatcher.DeliverDue(context.Background(), 10)
+	count, err := dispatcher.DeliverDue(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,6 +167,46 @@ func TestDispatcherRecordsFailedAttemptBeforeRetry(t *testing.T) {
 	attempt := store.attempts[0]
 	if attempt.Outcome != OutcomeRetrying || attempt.Actor != "configured" || attempt.Error == "" {
 		t.Fatalf("attempt = %#v", attempt)
+	}
+	if !attempt.NextAttemptAt.Equal(time.Unix(71, 0)) {
+		t.Fatalf("next attempt = %s, want one second after completion", attempt.NextAttemptAt)
+	}
+}
+
+func TestDispatcherAuditsAnAttemptCanceledDuringShutdown(t *testing.T) {
+	store := &cancellationStore{dispatchMemory: dispatchMemory{due: []Dispatch{{
+		DeliveryID: "del_shutdown", MessageID: "msg_shutdown", EndpointID: "ep_shutdown",
+		Actor: "configured", Destination: "https://example.com/hook",
+		Secret: testSecret, Payload: []byte(`{"ok":true}`),
+	}}}}
+	schedule, err := NewSchedule(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &cancellationSender{started: make(chan struct{})}
+	dispatcher, err := NewDispatcher(
+		store,
+		sender,
+		schedule,
+		func() time.Time { return time.Unix(80, 0) },
+		NewAttemptCoordinator(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	result := make(chan error, 1)
+	go func() {
+		_, deliverErr := dispatcher.DeliverDue(ctx, 1)
+		result <- deliverErr
+	}()
+	<-sender.started
+	cancel()
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	if len(store.attempts) != 1 || store.attempts[0].Outcome != OutcomeExhausted {
+		t.Fatalf("shutdown attempts = %#v, want one exhausted audit", store.attempts)
 	}
 }
 

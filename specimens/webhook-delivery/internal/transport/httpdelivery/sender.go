@@ -59,8 +59,8 @@ func (s *Sender) Send(
 	closeErr := response.Body.Close()
 	result := delivery.SendResult{
 		StatusCode: response.StatusCode,
-		RetryAfter: parseRetryAfter(response.Header.Get("Retry-After"), headers.Timestamp),
 	}
+	result.RetryAfter, result.RetryAt = parseRetryAfter(response.Header.Get("Retry-After"))
 	if err := errors.Join(drainErr, closeErr); err != nil {
 		return result, fmt.Errorf("close webhook response: %w", err)
 	}
@@ -98,25 +98,21 @@ func (e redactedRequestError) Unwrap() error {
 	return e.cause
 }
 
-func parseRetryAfter(value, webhookTimestamp string) time.Duration {
+func parseRetryAfter(value string) (time.Duration, time.Time) {
 	if value == "" {
-		return 0
+		return 0, time.Time{}
 	}
 	seconds, err := strconv.ParseInt(value, 10, 64)
 	if err == nil && seconds >= 0 {
-		return time.Duration(seconds) * time.Second
+		const maxDuration = time.Duration(1<<63 - 1)
+		if seconds > int64(maxDuration/time.Second) {
+			return maxDuration, time.Time{}
+		}
+		return time.Duration(seconds) * time.Second, time.Time{}
 	}
 	when, err := http.ParseTime(value)
 	if err != nil {
-		return 0
+		return 0, time.Time{}
 	}
-	timestamp, err := strconv.ParseInt(webhookTimestamp, 10, 64)
-	if err != nil {
-		return 0
-	}
-	delay := when.Sub(time.Unix(timestamp, 0))
-	if delay < 0 {
-		return 0
-	}
-	return delay
+	return 0, when.UTC()
 }

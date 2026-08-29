@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const attemptAuditTimeout = 10 * time.Second
+
 // Dispatch is the complete private input for one outbound attempt.
 type Dispatch struct {
 	DeliveryID   string
@@ -95,8 +97,11 @@ func (d *Dispatcher) deliver(ctx context.Context, item Dispatch) error {
 	if signErr == nil {
 		result, sendErr = d.sender.Send(ctx, item.Destination, item.Payload, headers)
 	}
-	attempt := d.schedule.resolve(item, result, errors.Join(signErr, sendErr), attemptedAt)
-	if err := d.store.RecordAttempt(ctx, attempt); err != nil {
+	completedAt := d.now().UTC()
+	attempt := d.schedule.resolve(item, result, errors.Join(signErr, sendErr), attemptedAt, completedAt)
+	auditContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), attemptAuditTimeout)
+	defer cancel()
+	if err := d.store.RecordAttempt(auditContext, attempt); err != nil {
 		return fmt.Errorf("record delivery %s attempt %d: %w", item.DeliveryID, attempt.Number, err)
 	}
 	return nil

@@ -50,6 +50,7 @@ func (s Schedule) MaxAttempts() int {
 type SendResult struct {
 	StatusCode int
 	RetryAfter time.Duration
+	RetryAt    time.Time
 }
 
 // AttemptOutcome is the durable interpretation of one outbound call.
@@ -90,7 +91,13 @@ type AttemptFilter struct {
 	EndpointID string
 }
 
-func (s Schedule) resolve(dispatch Dispatch, result SendResult, sendErr error, attemptedAt time.Time) Attempt {
+func (s Schedule) resolve(
+	dispatch Dispatch,
+	result SendResult,
+	sendErr error,
+	attemptedAt time.Time,
+	completedAt time.Time,
+) Attempt {
 	number := dispatch.AttemptCount + 1
 	attempt := Attempt{
 		DeliveryID:       dispatch.DeliveryID,
@@ -119,14 +126,26 @@ func (s Schedule) resolve(dispatch Dispatch, result SendResult, sendErr error, a
 		attempt.State = StateExhausted
 		return attempt
 	}
-	delay := s.delays[number-1]
+	completion := completedAt.UTC()
+	if completion.Before(attemptedAt) {
+		completion = attemptedAt.UTC()
+	}
+	nextAttemptAt := completion.Add(s.delays[number-1])
 	retryAfter := min(result.RetryAfter, s.maxRetryAfter)
-	if retryAfter > delay {
-		delay = retryAfter
+	if retryAfter > 0 && completion.Add(retryAfter).After(nextAttemptAt) {
+		nextAttemptAt = completion.Add(retryAfter)
+	}
+	retryAt := result.RetryAt.UTC()
+	retryCap := completion.Add(s.maxRetryAfter)
+	if retryAt.After(retryCap) {
+		retryAt = retryCap
+	}
+	if retryAt.After(nextAttemptAt) {
+		nextAttemptAt = retryAt
 	}
 	attempt.Outcome = OutcomeRetrying
 	attempt.State = StatePending
-	attempt.NextAttemptAt = attemptedAt.Add(delay).UTC()
+	attempt.NextAttemptAt = nextAttemptAt.UTC()
 	return attempt
 }
 

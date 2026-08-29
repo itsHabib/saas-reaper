@@ -57,6 +57,9 @@ verifiers accept through local runnable proofs.
   across a principal change, owner-only database mode, atomic audit rollback,
   and destination-credential redaction from the read authority.
 - Reviewed: five adversarial findings were reproduced and folded before PR.
+- Reviewed: first `@codex review` round found response-start retry timing and
+  graceful-shutdown audit loss; both were reproduced and fixed with focused
+  race tests before the second exact-head review.
 
 ## Handoff
 
