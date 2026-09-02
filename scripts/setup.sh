@@ -17,3 +17,4 @@ examples/python/.venv/bin/python -m pip install \
   -r examples/python/requirements.txt
 
 make -C specimens/webhook-delivery setup
+make -C specimens/audit-ledger setup

@@ -30,6 +30,7 @@ jobs:
           cache-dependency-path: |
             go.sum
             specimens/webhook-delivery/go.sum
+            specimens/audit-ledger/go.sum
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -68,6 +69,7 @@ jobs:
           cache-dependency-path: |
             go.sum
             specimens/webhook-delivery/go.sum
+            specimens/audit-ledger/go.sum
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -110,6 +112,7 @@ jobs:
           cache-dependency-path: |
             go.sum
             specimens/webhook-delivery/go.sum
+            specimens/audit-ledger/go.sum
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -132,6 +135,34 @@ jobs:
         run: make setup
       - name: Run loopback-only webhook proofs
         run: make webhook-demo webhook-invariants
+
+  audit-proof:
+    name: Audit ledger verifier agreement and invariants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            specimens/webhook-delivery/go.sum
+            specimens/audit-ledger/go.sum
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install local proof tools
+        run: sudo apt-get update && sudo apt-get install --yes curl jq
+      - name: Install pinned proof dependencies
+        run: make -C specimens/audit-ledger setup
+      - name: Run loopback-only audit ledger proofs
+        run: make audit-demo audit-invariants
 
   secrets:
     name: Secret history scan

@@ -103,6 +103,28 @@ make webhook-invariants
 make webhook-proof
 ```
 
+The third specimen lives in
+[`specimens/audit-ledger`](specimens/audit-ledger). Hosted audit-log products
+charge per event for an append-only store whose essential mechanism is a
+sequence number, a SHA-256 hash chain, and an export. The independent nested
+Go module ingests events idempotently, chains each tenant's entries inside one
+SQLite transaction, enforces append-only with database triggers, scopes the
+read token to configured tenants, and streams an NDJSON export. Its proof is
+an independent Python verifier that shares no code with the service: it
+recomputes the whole chain from the documented canonical encoding, agrees with
+the service head, and names the exact sequence where a tampered export breaks.
+The chain detects tampering; it is not a notarized timestamp, and the factory
+still generates only `feature-flags`.
+
+Run the audit ledger proofs on loopback:
+
+```sh
+make audit-demo
+make audit-invariants
+# static checks plus both runnable proofs
+make audit-proof
+```
+
 ## Frontier work contract
 
 Every generated repository includes a tailored `WORK.md`: a compact active-work
