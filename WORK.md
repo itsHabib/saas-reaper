@@ -32,6 +32,9 @@ verifiers accept through local runnable proofs.
 - `Makefile`: expose webhook demo, invariant, and complete specimen proof targets.
 - `.github/workflows/ci.yml`: run the local-only webhook interoperability and invariant proof.
 - `README.md`: describe the second specimen, selection principle, runnable proof, and factory boundary honestly.
+- `REAPER.yaml`: declare both golden specimens in the artifact manifest.
+- `AGENTS.md`: extend the paired law with the webhook specimen's layers, proofs, and authority rules.
+- `CLAUDE.md`: keep the byte-identical projection of the extended law.
 - `WORK.md`: bind this exact task, proof, and stop boundary.
 
 ## Prove
@@ -64,9 +67,15 @@ verifiers accept through local runnable proofs.
   whitespace-only actor accepted at service construction; both were reproduced
   and folded in the second and final allowed fix round.
 
+- Reviewed: the Claude review's eight findings were each reproduced by a
+  focused test and folded: queue-head starvation, 2xx-with-torn-body retry,
+  fan-out abort on a racing disable, the global attempt permit, bash 3.2
+  cleanup, manifest drift, dual transition tables, and laundered signing
+  failures.
+
 ## Handoff
 
-- Last: the second and final review-fix round aligns the paired agent guides
-  with the two-specimen repository and rejects a blank configured principal.
-- Next: rerun every proof, push the exact head, request final `@codex review`,
+- Last: the Claude review round removed the attempt coordinator in favour of
+  the store transaction, parked unauditable rows, and added the `failed` state.
+- Next: rerun every proof, push the exact head, request one `@codex review`,
   and stop at the reviewed CI-green head without Gate or merge.

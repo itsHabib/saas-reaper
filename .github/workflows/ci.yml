@@ -47,7 +47,7 @@ jobs:
             examples/python/requirements.txt
             specimens/webhook-delivery/receivers/python/requirements.txt
       - name: Install system verification tools
-        run: sudo apt-get update && sudo apt-get install --yes ripgrep rsync shellcheck
+        run: sudo apt-get update && sudo apt-get install --yes jq ripgrep rsync shellcheck
       - name: Run fast verification floor
         run: make check
 

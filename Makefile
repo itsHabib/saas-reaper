@@ -12,10 +12,10 @@ demo: setup
 product-demo: setup
 	./scripts/product-demo.sh
 
-webhook-demo:
+webhook-demo: setup
 	$(MAKE) -C specimens/webhook-delivery demo
 
-webhook-invariants:
+webhook-invariants: setup
 	$(MAKE) -C specimens/webhook-delivery invariants
 
 webhook-proof: check webhook-demo webhook-invariants

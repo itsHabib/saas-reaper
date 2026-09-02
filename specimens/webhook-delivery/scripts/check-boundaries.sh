@@ -11,9 +11,22 @@ while IFS= read -r file; do
     echo "vague source filename: $file" >&2
     exit 1
   fi
-done < <(rg --files -g '*.go' -g '*.ts' -g '*.py')
+done < <(rg --files \
+  -g '*.go' \
+  -g '*.ts' \
+  -g '*.py' \
+  -g '!**/node_modules/**' \
+  -g '!**/.venv/**' \
+  -g '!**/__pycache__/**')
 
-if rg -n '\belse\b' -g '*.go' -g '*.ts' -g '*.py' .; then
+if rg -n '\belse\b' \
+  -g '*.go' \
+  -g '*.ts' \
+  -g '*.py' \
+  -g '!**/node_modules/**' \
+  -g '!**/.venv/**' \
+  -g '!**/__pycache__/**' \
+  .; then
   echo "line-of-sight violation: use a guard clause instead of else" >&2
   exit 1
 fi
@@ -24,7 +37,7 @@ if rg -n -g '!**/*_test.go' "$module/(api|store|transport|worker)" internal/deli
   exit 1
 fi
 
-if rg -n -g '!**/*_test.go' \
+if rg -n \
   "$module/(api|store|transport|worker)" \
   internal/api internal/store internal/transport internal/worker; then
   echo "boundary violation: transports and mechanisms may depend only on delivery policy" >&2
