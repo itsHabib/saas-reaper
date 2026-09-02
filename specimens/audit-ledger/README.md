@@ -77,7 +77,11 @@ The canonical JSON rules, applied recursively to `metadata`:
 
 The export line encoding is ordinary JSON and carries `hash`; it is not
 required to be canonical. Verifiers parse each line, drop `hash`, re-canonicalize
-the remaining members, and compare. `verifier/verify.py` prints
+the remaining members, and compare. A line must carry exactly the ten members
+above plus `hash` and nothing else, every one of them a string except the
+integer `sequence` and the free-form `metadata`. A verifier that silently
+ignored an unexpected member, or that accepted a boolean where an integer
+belongs, would report a line as verified while authenticating only part of it. `verifier/verify.py` prints
 `ok sequence=N head=HEX` on success and `broken sequence=N reason=...` with
 exit `1` at the first hash mismatch, gap, or foreign tenant row.
 

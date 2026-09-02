@@ -95,6 +95,25 @@ class VerifyTest(unittest.TestCase):
         self.assertFalse(healthy)
         self.assertEqual(report, "broken sequence=2 reason=foreign-tenant")
 
+    def test_unexpected_member_is_rejected(self):
+        rows = chain(1)
+        rows[0]["approvedBy"] = "CFO"
+        with self.assertRaises(verify.ContractError):
+            verify.verify(lines(rows))
+
+    def test_boolean_sequence_is_rejected(self):
+        # True == 1 in Python, so an unchecked continuity test would accept it.
+        rows = chain(1)
+        rows[0]["sequence"] = True
+        with self.assertRaises(verify.ContractError):
+            verify.verify(lines(rows))
+
+    def test_wrongly_typed_string_member_is_rejected(self):
+        rows = chain(1)
+        rows[0]["actor"] = 123
+        with self.assertRaises(verify.ContractError):
+            verify.verify(lines(rows))
+
     def test_missing_member_is_unreadable(self):
         rows = chain(1)
         del rows[0]["source"]

@@ -28,6 +28,11 @@ ENTRY_MEMBERS = (
     "tenant",
 )
 
+# Every member except ``metadata`` (any JSON value) and ``sequence`` (an
+# integer) is a string in the entry the service serializes.
+STRING_MEMBERS = tuple(member for member in ENTRY_MEMBERS if member not in ("metadata", "sequence"))
+ALLOWED_MEMBERS = frozenset(ENTRY_MEMBERS) | {"hash"}
+
 
 class ContractError(ValueError):
     """A value the canonical contract does not admit."""
@@ -90,7 +95,28 @@ def parse_row(line, number):
     missing = [member for member in ENTRY_MEMBERS + ("hash",) if member not in row]
     if missing:
         raise ContractError("line %d lacks %s" % (number, ", ".join(missing)))
+    unexpected = sorted(set(row) - ALLOWED_MEMBERS)
+    if unexpected:
+        raise ContractError("line %d carries unexpected member(s) %s" % (number, ", ".join(unexpected)))
+    check_member_types(row, number)
     return row
+
+
+def check_member_types(row, number):
+    """Reject values the service cannot serialize.
+
+    The chain is unkeyed, so a crafted row is only meaningful when it also
+    parses as a legitimate entry. ``True`` compares equal to ``1`` in Python,
+    so a boolean sequence would otherwise satisfy the continuity check and
+    hash as ``true`` -- bytes the typed Go int64 can never produce.
+    """
+    for member in STRING_MEMBERS:
+        if type(row[member]) is not str:
+            raise ContractError("line %d: %s must be a string" % (number, member))
+    if type(row["hash"]) is not str:
+        raise ContractError("line %d: hash must be a string" % number)
+    if type(row["sequence"]) is not int:
+        raise ContractError("line %d: sequence must be an integer" % number)
 
 
 def link(previous_hash, row):
