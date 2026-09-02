@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -72,7 +73,7 @@ func newRedactionRuntime(t *testing.T) redactionRuntime {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sender, err := httpdelivery.New(time.Second)
+	sender, err := httpdelivery.New(time.Second, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}

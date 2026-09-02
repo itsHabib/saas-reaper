@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -20,19 +21,26 @@ const responseDrainBytes = 4 << 10
 // Sender owns the bounded outbound HTTP client.
 type Sender struct {
 	client *http.Client
+	logger *slog.Logger
 }
 
 // New constructs a sender that treats redirects as delivery failures.
-func New(timeout time.Duration) (*Sender, error) {
+func New(timeout time.Duration, logger *slog.Logger) (*Sender, error) {
 	if timeout < time.Second || timeout > time.Minute {
 		return nil, errors.New("request timeout must be between one second and one minute")
 	}
-	return &Sender{client: &http.Client{
-		Timeout: timeout,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
+	if logger == nil {
+		return nil, errors.New("sender logger is required")
+	}
+	return &Sender{
+		client: &http.Client{
+			Timeout: timeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
 		},
-	}}, nil
+		logger: logger,
+	}, nil
 }
 
 // Send posts exact payload bytes with the Standard Webhooks headers.
@@ -61,10 +69,21 @@ func (s *Sender) Send(
 		StatusCode: response.StatusCode,
 	}
 	result.RetryAfter, result.RetryAt = parseRetryAfter(response.Header.Get("Retry-After"))
-	if err := errors.Join(drainErr, closeErr); err != nil {
-		return result, fmt.Errorf("close webhook response: %w", err)
+	bodyErr := errors.Join(drainErr, closeErr)
+	if bodyErr == nil {
+		return result, nil
 	}
+	if !accepted(response.StatusCode) {
+		return result, fmt.Errorf("close webhook response: %w", bodyErr)
+	}
+	// The receiver already accepted the request; a torn response body cannot un-deliver it.
+	s.logger.WarnContext(ctx, "webhook accepted before its response body could be drained",
+		"status", response.StatusCode, "error", bodyErr)
 	return result, nil
+}
+
+func accepted(statusCode int) bool {
+	return statusCode >= 200 && statusCode <= 299
 }
 
 func redactDestination(err error) error {

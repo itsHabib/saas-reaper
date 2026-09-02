@@ -3,6 +3,7 @@ package httpdelivery
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +17,7 @@ import (
 )
 
 func TestSenderRedactsDestinationFromNetworkErrors(t *testing.T) {
-	sender, err := New(time.Second)
+	sender, err := New(time.Second, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +53,7 @@ func TestSenderRefusesRedirects(t *testing.T) {
 	}))
 	defer server.Close()
 
-	sender, err := New(time.Second)
+	sender, err := New(time.Second, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func TestSenderParsesRetryAfter(t *testing.T) {
 			}))
 			defer server.Close()
 
-			sender, err := New(time.Second)
+			sender, err := New(time.Second, slog.New(slog.DiscardHandler))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -132,6 +133,45 @@ func TestSenderParsesRetryAfter(t *testing.T) {
 					test.wantDelay,
 					test.wantAt,
 				)
+			}
+		})
+	}
+}
+
+func TestSenderTreatsAcceptedStatusAsTerminalDespiteTornBody(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		wantErr bool
+	}{
+		{name: "200 with torn body is delivered", status: http.StatusOK},
+		{name: "202 with torn body is delivered", status: http.StatusAccepted},
+		{name: "500 with torn body still fails", status: http.StatusInternalServerError, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Length", "64")
+				w.WriteHeader(test.status)
+				_, _ = w.Write([]byte("partial"))
+			}))
+			defer server.Close()
+
+			sender, err := New(time.Second, slog.New(slog.DiscardHandler))
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := sender.Send(
+				context.Background(),
+				server.URL,
+				[]byte(`{"event":"invoice.created"}`),
+				delivery.Headers{MessageID: "msg_1", Timestamp: "1787947200", Signature: "v1,test"},
+			)
+			if result.StatusCode != test.status {
+				t.Fatalf("status = %d, want %d", result.StatusCode, test.status)
+			}
+			if (err != nil) != test.wantErr {
+				t.Fatalf("error = %v, want error %t", err, test.wantErr)
 			}
 		})
 	}

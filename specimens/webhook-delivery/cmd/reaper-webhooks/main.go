@@ -44,7 +44,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	sender, err := httpdelivery.New(configuration.requestTimeout)
+	sender, err := httpdelivery.New(configuration.requestTimeout, slog.Default())
 	if err != nil {
 		return err
 	}
