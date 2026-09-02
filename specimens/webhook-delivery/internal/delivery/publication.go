@@ -12,7 +12,7 @@ type ManagementStore interface {
 	RegisterEndpoint(context.Context, Endpoint, int64) (Endpoint, error)
 	DisableEndpoint(context.Context, string, int64, time.Time) (Endpoint, error)
 	ListEndpoints(context.Context) ([]Endpoint, error)
-	Publish(context.Context, Message, []Delivery) error
+	Publish(context.Context, Message, []Delivery) ([]Delivery, error)
 	Message(context.Context, string) (Message, error)
 	Endpoint(context.Context, string) (Endpoint, error)
 	Replay(context.Context, Delivery) error
@@ -23,12 +23,11 @@ type Clock func() time.Time
 
 // Service applies management policy before crossing the persistence boundary.
 type Service struct {
-	store    ManagementStore
-	actor    string
-	now      Clock
-	ids      IDGenerator
-	secret   func() (string, error)
-	attempts *AttemptCoordinator
+	store  ManagementStore
+	actor  string
+	now    Clock
+	ids    IDGenerator
+	secret func() (string, error)
 }
 
 // Publication identifies the immutable message and queued deliveries.
@@ -44,7 +43,6 @@ func NewService(
 	now Clock,
 	ids IDGenerator,
 	secret func() (string, error),
-	attempts *AttemptCoordinator,
 ) (*Service, error) {
 	if store == nil {
 		return nil, fmt.Errorf("%w: management store is required", ErrInvalid)
@@ -52,13 +50,10 @@ func NewService(
 	if strings.TrimSpace(actor) == "" {
 		return nil, fmt.Errorf("%w: configured actor is required", ErrInvalid)
 	}
-	if now == nil || ids == nil || secret == nil || attempts == nil {
-		return nil, fmt.Errorf(
-			"%w: clock, identifier generator, secret generator, and attempt coordinator are required",
-			ErrInvalid,
-		)
+	if now == nil || ids == nil || secret == nil {
+		return nil, fmt.Errorf("%w: clock, identifier generator, and secret generator are required", ErrInvalid)
 	}
-	return &Service{store: store, actor: actor, now: now, ids: ids, secret: secret, attempts: attempts}, nil
+	return &Service{store: store, actor: actor, now: now, ids: ids, secret: secret}, nil
 }
 
 // RegisterEndpoint creates the first immutable-secret endpoint revision.
@@ -82,20 +77,17 @@ func (s *Service) RegisterEndpoint(
 }
 
 // DisableEndpoint stops queued and future delivery to an endpoint revision.
+//
+// The store transaction commits immediately; an attempt whose send overlapped
+// the disable is rejected when it tries to record itself.
 func (s *Service) DisableEndpoint(ctx context.Context, id string, expectedRevision int64) (Endpoint, error) {
 	if !endpointID.MatchString(id) || expectedRevision < 1 {
 		return Endpoint{}, fmt.Errorf("%w: valid endpoint id and positive expected revision are required", ErrInvalid)
 	}
-	var endpoint Endpoint
-	err := s.attempts.run(ctx, func() error {
-		var disableErr error
-		endpoint, disableErr = s.store.DisableEndpoint(ctx, id, expectedRevision, s.now().UTC())
-		return disableErr
-	})
-	return endpoint, err
+	return s.store.DisableEndpoint(ctx, id, expectedRevision, s.now().UTC())
 }
 
-// Publish stores exact payload bytes and queues one delivery per enabled endpoint.
+// Publish stores exact payload bytes and queues one delivery per endpoint still enabled at commit.
 func (s *Service) Publish(ctx context.Context, payload []byte) (Publication, error) {
 	messageID, err := s.ids("msg_")
 	if err != nil {
@@ -114,10 +106,11 @@ func (s *Service) Publish(ctx context.Context, payload []byte) (Publication, err
 	if err != nil {
 		return Publication{}, err
 	}
-	if err := s.store.Publish(ctx, message, deliveries); err != nil {
+	queued, err := s.store.Publish(ctx, message, deliveries)
+	if err != nil {
 		return Publication{}, fmt.Errorf("persist publication: %w", err)
 	}
-	return publicationResult(message.ID, deliveries), nil
+	return publicationResult(message.ID, queued), nil
 }
 
 // Replay queues one fresh delivery for an existing message and enabled endpoint.

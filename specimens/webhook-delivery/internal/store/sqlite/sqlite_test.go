@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -35,11 +36,11 @@ func TestStoreRejectsActorMismatches(t *testing.T) {
 	message := testMessage("msg_actor", at)
 	item := testDelivery("del_actor", message.ID, endpoint.ID, delivery.DeliveryOriginal, at)
 	item.Actor = "different-actor"
-	if err := store.Publish(t.Context(), message, []delivery.Delivery{item}); !errors.Is(err, delivery.ErrInvalid) {
+	if _, err := store.Publish(t.Context(), message, []delivery.Delivery{item}); !errors.Is(err, delivery.ErrInvalid) {
 		t.Fatalf("publication actor mismatch error = %v, want invalid", err)
 	}
 	item.Actor = message.Actor
-	if err := store.Publish(t.Context(), message, []delivery.Delivery{item}); err != nil {
+	if _, err := store.Publish(t.Context(), message, []delivery.Delivery{item}); err != nil {
 		t.Fatal(err)
 	}
 	attempt := testAttempt(item, "different-actor", 1, at, delivery.OutcomeDelivered, delivery.StateSucceeded)
@@ -95,7 +96,7 @@ func TestEndpointRevisionDisableAndPublicationRace(t *testing.T) {
 	}
 	message := testMessage("msg_before_disable", at)
 	item := testDelivery("del_before_disable", message.ID, endpoint.ID, delivery.DeliveryOriginal, at)
-	if err := store.Publish(ctx, message, []delivery.Delivery{item}); err != nil {
+	if _, err := store.Publish(ctx, message, []delivery.Delivery{item}); err != nil {
 		t.Fatal(err)
 	}
 	disabled, err := store.DisableEndpoint(ctx, endpoint.ID, 1, at.Add(2*time.Second))
@@ -122,11 +123,15 @@ func TestEndpointRevisionDisableAndPublicationRace(t *testing.T) {
 		delivery.DeliveryOriginal,
 		lateMessage.CreatedAt,
 	)
-	if err := store.Publish(ctx, lateMessage, []delivery.Delivery{late}); !errors.Is(err, delivery.ErrDisabled) {
-		t.Fatalf("publication to newly disabled endpoint error = %v, want disabled", err)
+	queued, err := store.Publish(ctx, lateMessage, []delivery.Delivery{late})
+	if err != nil {
+		t.Fatalf("publication to newly disabled endpoint error = %v, want message kept with nothing queued", err)
 	}
-	if _, err := store.Message(ctx, lateMessage.ID); !errors.Is(err, delivery.ErrNotFound) {
-		t.Fatalf("rolled-back message error = %v, want not found", err)
+	if len(queued) != 0 {
+		t.Fatalf("disabled endpoint was queued: %#v", queued)
+	}
+	if _, err := store.Message(ctx, lateMessage.ID); err != nil {
+		t.Fatalf("message without enabled endpoints was not kept: %v", err)
 	}
 	replay := testDelivery(
 		"del_disabled_replay",
@@ -179,7 +184,7 @@ func prepareRestartFixture(t *testing.T) restartFixture {
 		CreatedAt: at,
 	}
 	original := testDelivery("del_original", message.ID, endpoint.ID, delivery.DeliveryOriginal, at)
-	if err := store.Publish(t.Context(), message, []delivery.Delivery{original}); err != nil {
+	if _, err := store.Publish(t.Context(), message, []delivery.Delivery{original}); err != nil {
 		t.Fatal(err)
 	}
 	return restartFixture{
@@ -359,7 +364,7 @@ func prepareEndpointGoneFixture(
 	}
 	firstMessage := testMessage("msg_gone_one", at)
 	first := testDelivery("del_gone_one", firstMessage.ID, endpoint.ID, delivery.DeliveryOriginal, at)
-	if err := store.Publish(t.Context(), firstMessage, []delivery.Delivery{first}); err != nil {
+	if _, err := store.Publish(t.Context(), firstMessage, []delivery.Delivery{first}); err != nil {
 		t.Fatal(err)
 	}
 	secondMessage := testMessage("msg_gone_two", at.Add(time.Second))
@@ -370,7 +375,7 @@ func prepareEndpointGoneFixture(
 		delivery.DeliveryOriginal,
 		secondMessage.CreatedAt,
 	)
-	if err := store.Publish(t.Context(), secondMessage, []delivery.Delivery{second}); err != nil {
+	if _, err := store.Publish(t.Context(), secondMessage, []delivery.Delivery{second}); err != nil {
 		t.Fatal(err)
 	}
 	return store, endpoint, first, second, at.Add(2 * time.Second)
@@ -455,7 +460,7 @@ func TestAttemptInsertFailureRollsBackDeliveryTransition(t *testing.T) {
 	}
 	message := testMessage("msg_rollback", at)
 	item := testDelivery("del_rollback", message.ID, endpoint.ID, delivery.DeliveryOriginal, at)
-	if err := store.Publish(ctx, message, []delivery.Delivery{item}); err != nil {
+	if _, err := store.Publish(ctx, message, []delivery.Delivery{item}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.db.ExecContext(
@@ -599,5 +604,165 @@ func assertDeliveryState(
 			wantState,
 			wantAttempts,
 		)
+	}
+}
+
+func TestRecordAttemptPersistsPermanentFailureAndRejectsForeignTransitions(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	at := time.Unix(500, 0).UTC()
+	endpoint := testEndpoint(t, "ep_failed", at)
+	if _, err := store.RegisterEndpoint(ctx, endpoint, 0); err != nil {
+		t.Fatal(err)
+	}
+	message := testMessage("msg_failed", at)
+	item := testDelivery("del_failed", message.ID, endpoint.ID, delivery.DeliveryOriginal, at)
+	if _, err := store.Publish(ctx, message, []delivery.Delivery{item}); err != nil {
+		t.Fatal(err)
+	}
+	foreign := testAttempt(item, message.Actor, 1, at, delivery.OutcomeFailed, delivery.StateExhausted)
+	if err := store.RecordAttempt(ctx, foreign); !errors.Is(err, delivery.ErrInvalid) {
+		t.Fatalf("state outside the outcome's transition error = %v, want invalid", err)
+	}
+	unknown := testAttempt(item, message.Actor, 1, at, delivery.AttemptOutcome("mystery"), delivery.StateFailed)
+	if err := store.RecordAttempt(ctx, unknown); !errors.Is(err, delivery.ErrInvalid) {
+		t.Fatalf("unknown outcome error = %v, want invalid", err)
+	}
+	assertDeliveryState(t, store, item.ID, delivery.StatePending, 0)
+	failed := testAttempt(item, message.Actor, 1, at, delivery.OutcomeFailed, delivery.StateFailed)
+	failed.Error = "permanent delivery failure: unsignable secret"
+	if err := store.RecordAttempt(ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	assertDeliveryState(t, store, item.ID, delivery.StateFailed, 1)
+	due, err := store.Due(ctx, at.Add(time.Hour), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("failed delivery stayed due: %#v", due)
+	}
+	if _, err := store.Endpoint(ctx, endpoint.ID); err != nil {
+		t.Fatal(err)
+	}
+	attempts, err := store.Attempts(ctx, delivery.AttemptFilter{MessageID: message.ID}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attempts) != 1 || attempts[0].Outcome != delivery.OutcomeFailed || attempts[0].State != delivery.StateFailed {
+		t.Fatalf("failed audit = %#v, want one failed row", attempts)
+	}
+}
+
+func TestPublishSkipsAnEndpointDisabledSinceTheSnapshot(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	at := time.Unix(600, 0).UTC()
+	healthy := testEndpoint(t, "ep_healthy", at)
+	racing := testEndpoint(t, "ep_racing", at)
+	for _, endpoint := range []delivery.Endpoint{healthy, racing} {
+		if _, err := store.RegisterEndpoint(ctx, endpoint, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	message := testMessage("msg_fanout", at)
+	toHealthy := testDelivery("del_healthy", message.ID, healthy.ID, delivery.DeliveryOriginal, at)
+	toRacing := testDelivery("del_racing", message.ID, racing.ID, delivery.DeliveryOriginal, at)
+	// The caller snapshotted both endpoints enabled; the disable lands before the publication commits.
+	if _, err := store.DisableEndpoint(ctx, racing.ID, 1, at.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := store.Publish(ctx, message, []delivery.Delivery{toHealthy, toRacing})
+	if err != nil {
+		t.Fatalf("publication failed because a sibling endpoint was disabled: %v", err)
+	}
+	if len(queued) != 1 || queued[0].ID != toHealthy.ID {
+		t.Fatalf("queued = %#v, want only the healthy delivery", queued)
+	}
+	if _, err := store.Message(ctx, message.ID); err != nil {
+		t.Fatal(err)
+	}
+	assertDeliveryState(t, store, toHealthy.ID, delivery.StatePending, 0)
+	var racingRows int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM deliveries WHERE id = ?`, toRacing.ID).Scan(&racingRows); err != nil {
+		t.Fatal(err)
+	}
+	if racingRows != 0 {
+		t.Fatalf("disabled endpoint received %d queued deliveries, want 0", racingRows)
+	}
+	unknownMessage := testMessage("msg_unknown", at)
+	unknown := testDelivery("del_unknown", unknownMessage.ID, "ep_missing", delivery.DeliveryOriginal, at)
+	if _, err := store.Publish(ctx, unknownMessage, []delivery.Delivery{unknown}); !errors.Is(err, delivery.ErrNotFound) {
+		t.Fatalf("unknown endpoint error = %v, want not found", err)
+	}
+}
+
+type blockingSender struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingSender) Send(context.Context, string, []byte, delivery.Headers) (delivery.SendResult, error) {
+	close(s.started)
+	<-s.release
+	return delivery.SendResult{StatusCode: 204}, nil
+}
+
+func TestDisableDuringSendIsALostRaceWithNoAuditRow(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	at := time.Unix(700, 0).UTC()
+	endpoint := testEndpoint(t, "ep_race", at)
+	if _, err := store.RegisterEndpoint(ctx, endpoint, 0); err != nil {
+		t.Fatal(err)
+	}
+	message := testMessage("msg_race", at)
+	inFlight := testDelivery("del_in_flight", message.ID, endpoint.ID, delivery.DeliveryOriginal, at)
+	sibling := testDelivery("del_sibling", message.ID, endpoint.ID, delivery.DeliveryOriginal, at.Add(time.Minute))
+	if _, err := store.Publish(ctx, message, []delivery.Delivery{inFlight, sibling}); err != nil {
+		t.Fatal(err)
+	}
+	schedule, err := delivery.NewSchedule(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &blockingSender{started: make(chan struct{}), release: make(chan struct{})}
+	dispatcher, err := delivery.NewDispatcher(store, sender, schedule, func() time.Time { return at }, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		count int
+		err   error
+	}
+	result := make(chan outcome, 1)
+	go func() {
+		count, deliverErr := dispatcher.DeliverDue(ctx, 10)
+		result <- outcome{count: count, err: deliverErr}
+	}()
+	<-sender.started
+	if _, err := store.DisableEndpoint(ctx, endpoint.ID, 1, at.Add(time.Second)); err != nil {
+		t.Fatalf("disable waited on or failed behind an active send: %v", err)
+	}
+	close(sender.release)
+	got := <-result
+	if got.err != nil || got.count != 1 {
+		t.Fatalf("lost race result = %d/%v, want one silent attempt", got.count, got.err)
+	}
+	assertDeliveryState(t, store, inFlight.ID, delivery.StateDisabled, 0)
+	assertDeliveryState(t, store, sibling.ID, delivery.StateDisabled, 0)
+	attempts, err := store.Attempts(ctx, delivery.AttemptFilter{}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attempts) != 0 {
+		t.Fatalf("lost race left audit rows: %#v", attempts)
+	}
+	due, err := store.Due(ctx, at.Add(time.Hour), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("disabled endpoint still has due work: %#v", due)
 	}
 }

@@ -340,41 +340,18 @@ func validateAttempt(attempt delivery.Attempt) error {
 	return validateAttemptTransition(attempt)
 }
 
-type expectedTransition struct {
-	state           delivery.DeliveryState
-	disableEndpoint bool
-	retryScheduled  bool
-}
-
-var expectedAttemptTransitions = map[delivery.AttemptOutcome]expectedTransition{
-	delivery.OutcomeDelivered: {
-		state: delivery.StateSucceeded,
-	},
-	delivery.OutcomeRetrying: {
-		state:          delivery.StatePending,
-		retryScheduled: true,
-	},
-	delivery.OutcomeExhausted: {
-		state: delivery.StateExhausted,
-	},
-	delivery.OutcomeEndpointDisabled: {
-		state:           delivery.StateDisabled,
-		disableEndpoint: true,
-	},
-}
-
 func validateAttemptTransition(attempt delivery.Attempt) error {
-	expected, exists := expectedAttemptTransitions[attempt.Outcome]
-	if !exists {
+	expected, known := attempt.Outcome.Transition()
+	if !known {
 		return invalidTransition(attempt)
 	}
-	if attempt.State != expected.state {
+	if attempt.State != expected.State {
 		return invalidTransition(attempt)
 	}
-	if attempt.DisableEndpoint != expected.disableEndpoint {
+	if attempt.DisableEndpoint != expected.DisableEndpoint {
 		return invalidTransition(attempt)
 	}
-	if !attempt.NextAttemptAt.IsZero() != expected.retryScheduled {
+	if !attempt.NextAttemptAt.IsZero() != expected.RetryScheduled {
 		return invalidTransition(attempt)
 	}
 	return nil

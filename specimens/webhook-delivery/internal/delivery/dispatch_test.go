@@ -3,37 +3,58 @@ package delivery
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
 
+var errAuditUnavailable = errors.New("audit database unavailable")
+
 type dispatchMemory struct {
 	due      []Dispatch
 	attempts []Attempt
+	reject   func(Attempt) error
 }
 
-func (m *dispatchMemory) Due(context.Context, time.Time, int) ([]Dispatch, error) {
-	return append([]Dispatch(nil), m.due...), nil
+func (m *dispatchMemory) Due(_ context.Context, _ time.Time, limit int) ([]Dispatch, error) {
+	return append([]Dispatch(nil), m.due[:min(limit, len(m.due))]...), nil
 }
 
 func (m *dispatchMemory) RecordAttempt(_ context.Context, attempt Attempt) error {
-	m.attempts = append(m.attempts, attempt)
-	if len(m.due) > 0 {
-		m.due = m.due[1:]
+	if m.reject != nil {
+		if err := m.reject(attempt); err != nil {
+			return err
+		}
 	}
+	m.attempts = append(m.attempts, attempt)
+	m.due = slices.DeleteFunc(m.due, func(item Dispatch) bool { return item.DeliveryID == attempt.DeliveryID })
 	return nil
+}
+
+func (m *dispatchMemory) attemptedIDs() []string {
+	ids := make([]string, 0, len(m.attempts))
+	for _, attempt := range m.attempts {
+		ids = append(ids, attempt.DeliveryID)
+	}
+	return ids
 }
 
 type senderStub struct {
 	result  SendResult
 	err     error
+	calls   int
 	payload []byte
 	headers Headers
 }
 
-type blockingSender struct {
-	started chan struct{}
-	release chan struct{}
+func (s *senderStub) Send(_ context.Context, _ string, payload []byte, headers Headers) (SendResult, error) {
+	s.calls++
+	s.payload = append([]byte(nil), payload...)
+	s.headers = headers
+	return s.result, s.err
 }
 
 type cancellationSender struct {
@@ -62,101 +83,41 @@ func (s *cancellationStore) RecordAttempt(ctx context.Context, attempt Attempt) 
 	return s.dispatchMemory.RecordAttempt(ctx, attempt)
 }
 
-func (s *blockingSender) Send(
-	context.Context,
-	string,
-	[]byte,
-	Headers,
-) (SendResult, error) {
-	close(s.started)
-	<-s.release
-	return SendResult{StatusCode: 204}, nil
-}
-
-type coordinatedStore struct {
-	managementMemory
-	dispatchMemory
-	attemptRecorded chan struct{}
-	disableEntered  chan struct{}
-}
-
-type disableFirstStore struct {
-	managementMemory
-	dispatchMemory
-	disableEntered chan struct{}
-	disableRelease chan struct{}
-}
-
-func (s *disableFirstStore) DisableEndpoint(
-	ctx context.Context,
-	id string,
-	expectedRevision int64,
-	at time.Time,
-) (Endpoint, error) {
-	close(s.disableEntered)
-	<-s.disableRelease
-	s.due = nil
-	return s.managementMemory.DisableEndpoint(ctx, id, expectedRevision, at)
-}
-
-func (s *coordinatedStore) RecordAttempt(ctx context.Context, attempt Attempt) error {
-	close(s.attemptRecorded)
-	return s.dispatchMemory.RecordAttempt(ctx, attempt)
-}
-
-func (s *coordinatedStore) DisableEndpoint(
-	ctx context.Context,
-	id string,
-	expectedRevision int64,
-	at time.Time,
-) (Endpoint, error) {
-	close(s.disableEntered)
-	select {
-	case <-s.attemptRecorded:
-	default:
-		return Endpoint{}, errors.New("disable overtook the active attempt audit")
-	}
-	s.due = nil
-	return s.managementMemory.DisableEndpoint(ctx, id, expectedRevision, at)
-}
-
-func (s *senderStub) Send(_ context.Context, _ string, payload []byte, headers Headers) (SendResult, error) {
-	s.payload = append([]byte(nil), payload...)
-	s.headers = headers
-	return s.result, s.err
-}
-
-func TestDispatcherRecordsFailedAttemptBeforeRetry(t *testing.T) {
-	store := &dispatchMemory{due: []Dispatch{{
-		DeliveryID:  "del_one",
-		MessageID:   "msg_one",
+func testDispatch(id string) Dispatch {
+	return Dispatch{
+		DeliveryID:  id,
+		MessageID:   "msg_" + strings.TrimPrefix(id, "del_"),
 		EndpointID:  "ep_one",
 		Actor:       "configured",
 		Destination: "https://example.com/hook",
 		Secret:      testSecret,
 		Payload:     []byte(`{"ok":true}`),
-	}}}
-	sender := &senderStub{err: errors.New("connection refused")}
+	}
+}
+
+func testDispatcher(t *testing.T, store DispatchStore, sender Sender, clock Clock) *Dispatcher {
+	t.Helper()
 	schedule, err := NewSchedule([]time.Duration{time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
+	dispatcher, err := NewDispatcher(store, sender, schedule, clock, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dispatcher
+}
+
+func TestDispatcherRecordsFailedAttemptBeforeRetry(t *testing.T) {
+	store := &dispatchMemory{due: []Dispatch{testDispatch("del_one")}}
+	sender := &senderStub{err: errors.New("connection refused")}
 	times := []time.Time{time.Unix(50, 0), time.Unix(50, 0), time.Unix(70, 0)}
 	clock := func() time.Time {
 		now := times[0]
 		times = times[1:]
 		return now
 	}
-	dispatcher, err := NewDispatcher(
-		store,
-		sender,
-		schedule,
-		clock,
-		NewAttemptCoordinator(),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	dispatcher := testDispatcher(t, store, sender, clock)
 	count, err := dispatcher.DeliverDue(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
@@ -174,11 +135,10 @@ func TestDispatcherRecordsFailedAttemptBeforeRetry(t *testing.T) {
 }
 
 func TestDispatcherAuditsAnAttemptCanceledDuringShutdown(t *testing.T) {
-	store := &cancellationStore{dispatchMemory: dispatchMemory{due: []Dispatch{{
-		DeliveryID: "del_shutdown", MessageID: "msg_shutdown", EndpointID: "ep_shutdown",
-		Actor: "configured", Destination: "https://example.com/hook",
-		Secret: testSecret, Payload: []byte(`{"ok":true}`),
-	}}}}
+	store := &cancellationStore{dispatchMemory: dispatchMemory{due: []Dispatch{
+		testDispatch("del_shutdown"),
+		testDispatch("del_never_started"),
+	}}}
 	schedule, err := NewSchedule(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +149,7 @@ func TestDispatcherAuditsAnAttemptCanceledDuringShutdown(t *testing.T) {
 		sender,
 		schedule,
 		func() time.Time { return time.Unix(80, 0) },
-		NewAttemptCoordinator(),
+		slog.New(slog.DiscardHandler),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +157,7 @@ func TestDispatcherAuditsAnAttemptCanceledDuringShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	result := make(chan error, 1)
 	go func() {
-		_, deliverErr := dispatcher.DeliverDue(ctx, 1)
+		_, deliverErr := dispatcher.DeliverDue(ctx, 2)
 		result <- deliverErr
 	}()
 	<-sender.started
@@ -208,144 +168,96 @@ func TestDispatcherAuditsAnAttemptCanceledDuringShutdown(t *testing.T) {
 	if len(store.attempts) != 1 || store.attempts[0].Outcome != OutcomeExhausted {
 		t.Fatalf("shutdown attempts = %#v, want one exhausted audit", store.attempts)
 	}
-}
-
-func TestDisableWaitsForActiveSendAndAudit(t *testing.T) {
-	at := time.Unix(60, 0).UTC()
-	store := &coordinatedStore{
-		managementMemory: managementMemory{endpoints: []Endpoint{{
-			ID: "ep_one", Enabled: true, Revision: 1,
-		}}},
-		dispatchMemory: dispatchMemory{due: []Dispatch{{
-			DeliveryID: "del_one", MessageID: "msg_one", EndpointID: "ep_one",
-			Actor: "configured", Destination: "https://example.com/hook",
-			Secret: testSecret, Payload: []byte(`{"ok":true}`),
-		}}},
-		attemptRecorded: make(chan struct{}),
-		disableEntered:  make(chan struct{}),
-	}
-	schedule, err := NewSchedule(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	coordination := NewAttemptCoordinator()
-	sender := &blockingSender{started: make(chan struct{}), release: make(chan struct{})}
-	dispatcher, err := NewDispatcher(store, sender, schedule, func() time.Time { return at }, coordination)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service, err := NewService(
-		store,
-		"configured",
-		func() time.Time { return at },
-		func(prefix string) (string, error) { return prefix + "unused", nil },
-		func() (string, error) { return testSecret, nil },
-		coordination,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	deliveryResult := make(chan error, 1)
-	go func() {
-		_, deliverErr := dispatcher.DeliverDue(t.Context(), 1)
-		deliveryResult <- deliverErr
-	}()
-	<-sender.started
-	disableStarted := make(chan struct{})
-	disableResult := make(chan error, 1)
-	go func() {
-		close(disableStarted)
-		_, disableErr := service.DisableEndpoint(t.Context(), "ep_one", 1)
-		disableResult <- disableErr
-	}()
-	<-disableStarted
-	select {
-	case <-store.disableEntered:
-		t.Fatal("disable entered persistence before the active attempt completed")
-	case <-time.After(25 * time.Millisecond):
-	}
-	close(sender.release)
-	if err := <-deliveryResult; err != nil {
-		t.Fatal(err)
-	}
-	if err := <-disableResult; err != nil {
-		t.Fatal(err)
-	}
-	count, err := dispatcher.DeliverDue(t.Context(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("post-disable delivery count = %d, want 0", count)
+	if store.attempts[0].DeliveryID != "del_shutdown" {
+		t.Fatalf("shutdown burned the retry budget of an unstarted delivery: %#v", store.attempts)
 	}
 }
 
-func TestSendRechecksDueWorkAfterConcurrentDisable(t *testing.T) {
-	at := time.Unix(70, 0).UTC()
-	store := &disableFirstStore{
-		managementMemory: managementMemory{endpoints: []Endpoint{{
-			ID: "ep_one", Enabled: true, Revision: 1,
-		}}},
-		dispatchMemory: dispatchMemory{due: []Dispatch{{
-			DeliveryID: "del_one", MessageID: "msg_one", EndpointID: "ep_one",
-			Actor: "configured", Destination: "https://example.com/hook",
-			Secret: testSecret, Payload: []byte(`{"ok":true}`),
-		}}},
-		disableEntered: make(chan struct{}),
-		disableRelease: make(chan struct{}),
+func TestDispatcherParksAnUnauditableDeliveryAndKeepsTheQueueMoving(t *testing.T) {
+	store := &dispatchMemory{
+		due: []Dispatch{testDispatch("del_poisoned"), testDispatch("del_behind")},
+		reject: func(attempt Attempt) error {
+			if attempt.DeliveryID == "del_poisoned" {
+				return errAuditUnavailable
+			}
+			return nil
+		},
 	}
-	coordination := NewAttemptCoordinator()
-	service, err := NewService(
-		store,
-		"configured",
-		func() time.Time { return at },
-		func(prefix string) (string, error) { return prefix + "unused", nil },
-		func() (string, error) { return testSecret, nil },
-		coordination,
-	)
+	sender := &senderStub{result: SendResult{StatusCode: 204}}
+	now := time.Unix(100, 0).UTC()
+	dispatcher := testDispatcher(t, store, sender, func() time.Time { return now })
+
+	count, err := dispatcher.DeliverDue(t.Context(), 2)
+	if !errors.Is(err, errAuditUnavailable) || !strings.Contains(err.Error(), "del_poisoned") {
+		t.Fatalf("error = %v, want the poisoned audit failure", err)
+	}
+	if count != 2 || !slices.Equal(store.attemptedIDs(), []string{"del_behind"}) {
+		t.Fatalf("count/attempted = %d/%v, want the delivery behind the poisoned head attempted", count, store.attemptedIDs())
+	}
+
+	// The poisoned row stays first in queue order but is parked, so it is not re-sent every poll.
+	count, err = dispatcher.DeliverDue(t.Context(), 2)
+	if err != nil || count != 0 || sender.calls != 2 {
+		t.Fatalf("parked pass = %d/%v with %d sends, want nothing attempted", count, err, sender.calls)
+	}
+
+	now = now.Add(auditFailureBackoff)
+	count, err = dispatcher.DeliverDue(t.Context(), 2)
+	if !errors.Is(err, errAuditUnavailable) || count != 1 || sender.calls != 3 {
+		t.Fatalf("post-backoff pass = %d/%v with %d sends, want the parked delivery retried", count, err, sender.calls)
+	}
+}
+
+func TestDispatcherTreatsAStoreRejectedAttemptAsALostRace(t *testing.T) {
+	for _, lost := range []error{ErrConflict, ErrDisabled} {
+		t.Run(lost.Error(), func(t *testing.T) {
+			store := &dispatchMemory{
+				due: []Dispatch{testDispatch("del_raced"), testDispatch("del_behind")},
+				reject: func(attempt Attempt) error {
+					if attempt.DeliveryID == "del_raced" {
+						return fmt.Errorf("%w: endpoint ep_one", lost)
+					}
+					return nil
+				},
+			}
+			sender := &senderStub{result: SendResult{StatusCode: 204}}
+			now := time.Unix(110, 0).UTC()
+			dispatcher := testDispatcher(t, store, sender, func() time.Time { return now })
+			count, err := dispatcher.DeliverDue(t.Context(), 2)
+			if err != nil {
+				t.Fatalf("lost race surfaced as an error: %v", err)
+			}
+			if count != 2 || !slices.Equal(store.attemptedIDs(), []string{"del_behind"}) {
+				t.Fatalf("count/attempted = %d/%v, want the raced attempt dropped silently", count, store.attemptedIDs())
+			}
+			if len(dispatcher.parked) != 0 {
+				t.Fatalf("lost race parked a delivery: %#v", dispatcher.parked)
+			}
+		})
+	}
+}
+
+func TestDispatcherTerminatesAnUnsignableDeliveryAfterOneAudit(t *testing.T) {
+	unsignable := testDispatch("del_unsignable")
+	unsignable.Secret = "whsec_not-base64"
+	store := &dispatchMemory{due: []Dispatch{unsignable, testDispatch("del_behind")}}
+	sender := &senderStub{result: SendResult{StatusCode: 204}}
+	dispatcher := testDispatcher(t, store, sender, func() time.Time { return time.Unix(120, 0).UTC() })
+	count, err := dispatcher.DeliverDue(t.Context(), 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	schedule, err := NewSchedule(nil)
-	if err != nil {
-		t.Fatal(err)
+	if count != 2 || len(store.attempts) != 2 || sender.calls != 1 {
+		t.Fatalf("count/attempts/sends = %d/%d/%d, want the unsignable delivery audited without a send", count, len(store.attempts), sender.calls)
 	}
-	sender := &senderStub{}
-	dispatcher, err := NewDispatcher(store, sender, schedule, func() time.Time { return at }, coordination)
-	if err != nil {
-		t.Fatal(err)
+	failed := store.attempts[0]
+	if failed.DeliveryID != "del_unsignable" || failed.Outcome != OutcomeFailed || failed.State != StateFailed {
+		t.Fatalf("unsignable attempt = %#v, want a terminal failed audit", failed)
 	}
-	disableResult := make(chan error, 1)
-	go func() {
-		_, disableErr := service.DisableEndpoint(t.Context(), "ep_one", 1)
-		disableResult <- disableErr
-	}()
-	<-store.disableEntered
-	deliveryResult := make(chan struct {
-		count int
-		err   error
-	}, 1)
-	go func() {
-		count, deliverErr := dispatcher.DeliverDue(t.Context(), 1)
-		deliveryResult <- struct {
-			count int
-			err   error
-		}{count: count, err: deliverErr}
-	}()
-	select {
-	case result := <-deliveryResult:
-		t.Fatalf("delivery completed before disable commit: count=%d err=%v", result.count, result.err)
-	case <-time.After(25 * time.Millisecond):
+	if failed.StatusCode != 0 || !failed.NextAttemptAt.IsZero() || !strings.Contains(failed.Error, "permanent") {
+		t.Fatalf("unsignable attempt = %#v, want no status, no retry, and a permanent error", failed)
 	}
-	close(store.disableRelease)
-	if err := <-disableResult; err != nil {
-		t.Fatal(err)
-	}
-	result := <-deliveryResult
-	if result.err != nil {
-		t.Fatal(result.err)
-	}
-	if result.count != 0 || len(sender.payload) != 0 {
-		t.Fatalf("post-disable result count/payload = %d/%q, want 0/empty", result.count, sender.payload)
+	if store.attempts[1].Outcome != OutcomeDelivered {
+		t.Fatalf("sibling attempt = %#v, want delivered", store.attempts[1])
 	}
 }

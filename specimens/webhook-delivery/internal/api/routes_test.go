@@ -71,10 +71,10 @@ func (s *apiTestStore) Publish(
 	_ context.Context,
 	message delivery.Message,
 	deliveries []delivery.Delivery,
-) error {
+) ([]delivery.Delivery, error) {
 	s.message = message
 	s.deliveries = append([]delivery.Delivery(nil), deliveries...)
-	return nil
+	return s.deliveries, nil
 }
 
 func (s *apiTestStore) Message(_ context.Context, id string) (delivery.Message, error) {
@@ -174,7 +174,6 @@ func TestNewRejectsCollapsedAuthorityTokens(t *testing.T) {
 		time.Now,
 		func(prefix string) (string, error) { return prefix + "1", nil },
 		func() (string, error) { return apiSecret, nil },
-		delivery.NewAttemptCoordinator(),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -352,7 +351,7 @@ func newAPITestHandler(t *testing.T) (http.Handler, *apiTestStore) {
 		return now
 	}, ids, func() (string, error) {
 		return apiSecret, nil
-	}, delivery.NewAttemptCoordinator())
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

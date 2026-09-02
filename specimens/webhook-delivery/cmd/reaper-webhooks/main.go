@@ -48,19 +48,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	attempts := delivery.NewAttemptCoordinator()
 	service, err := delivery.NewService(
 		store,
 		configuration.adminActor,
 		time.Now,
 		delivery.RandomID,
 		delivery.RandomSecret,
-		attempts,
 	)
 	if err != nil {
 		return err
 	}
-	dispatcher, err := delivery.NewDispatcher(store, sender, schedule, time.Now, attempts)
+	dispatcher, err := delivery.NewDispatcher(store, sender, schedule, time.Now, slog.Default())
 	if err != nil {
 		return err
 	}

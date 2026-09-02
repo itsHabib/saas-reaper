@@ -57,6 +57,8 @@ const (
 	StateExhausted DeliveryState = "exhausted"
 	// StateDisabled records cancellation by endpoint disablement.
 	StateDisabled DeliveryState = "disabled"
+	// StateFailed records a terminal permanent failure that no retry can repair.
+	StateFailed DeliveryState = "failed"
 )
 
 func newMessage(id string, payload []byte, actor string, now time.Time) (Message, error) {

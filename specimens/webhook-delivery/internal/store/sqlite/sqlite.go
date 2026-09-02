@@ -96,7 +96,7 @@ func (s *Store) prepare(ctx context.Context) error {
 			endpoint_id TEXT NOT NULL REFERENCES endpoints(id),
 			actor TEXT NOT NULL,
 			kind TEXT NOT NULL CHECK (kind IN ('original', 'replay')),
-			state TEXT NOT NULL CHECK (state IN ('pending', 'succeeded', 'exhausted', 'disabled')),
+			state TEXT NOT NULL CHECK (state IN ('pending', 'succeeded', 'exhausted', 'disabled', 'failed')),
 			attempt_count INTEGER NOT NULL CHECK (attempt_count >= 0),
 			next_attempt_at INTEGER,
 			created_at INTEGER NOT NULL
@@ -113,14 +113,14 @@ func (s *Store) prepare(ctx context.Context) error {
 			actor TEXT NOT NULL,
 			number INTEGER NOT NULL CHECK (number >= 1),
 			outcome TEXT NOT NULL CHECK (
-				outcome IN ('delivered', 'retrying', 'exhausted', 'endpoint_disabled')
+				outcome IN ('delivered', 'retrying', 'exhausted', 'endpoint_disabled', 'failed')
 			),
 			status_code INTEGER NOT NULL CHECK (status_code >= 0),
 			error_text TEXT NOT NULL,
 			webhook_timestamp INTEGER NOT NULL,
 			attempted_at INTEGER NOT NULL,
 			next_attempt_at INTEGER,
-			state TEXT NOT NULL CHECK (state IN ('pending', 'succeeded', 'exhausted', 'disabled')),
+			state TEXT NOT NULL CHECK (state IN ('pending', 'succeeded', 'exhausted', 'disabled', 'failed')),
 			disable_endpoint INTEGER NOT NULL CHECK (disable_endpoint IN (0, 1)),
 			UNIQUE (delivery_id, number)
 		)`,

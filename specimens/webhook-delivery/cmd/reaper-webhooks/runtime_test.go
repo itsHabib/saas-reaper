@@ -48,7 +48,6 @@ func newRedactionRuntime(t *testing.T) redactionRuntime {
 		sequence++
 		return prefix + strconv.Itoa(sequence), nil
 	}
-	coordination := delivery.NewAttemptCoordinator()
 	service, err := delivery.NewService(
 		store,
 		"configured-admin",
@@ -57,7 +56,6 @@ func newRedactionRuntime(t *testing.T) redactionRuntime {
 		func() (string, error) {
 			return "whsec_MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=", nil
 		},
-		coordination,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +75,13 @@ func newRedactionRuntime(t *testing.T) redactionRuntime {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatcher, err := delivery.NewDispatcher(store, sender, schedule, func() time.Time { return at }, coordination)
+	dispatcher, err := delivery.NewDispatcher(
+		store,
+		sender,
+		schedule,
+		func() time.Time { return at },
+		slog.New(slog.DiscardHandler),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

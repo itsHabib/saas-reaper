@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -65,7 +66,30 @@ const (
 	OutcomeExhausted AttemptOutcome = "exhausted"
 	// OutcomeEndpointDisabled records a 410 response and disables the endpoint.
 	OutcomeEndpointDisabled AttemptOutcome = "endpoint_disabled"
+	// OutcomeFailed records a permanent failure, such as an unsignable stored secret, that no retry can repair.
+	OutcomeFailed AttemptOutcome = "failed"
 )
+
+// Transition is the durable delivery consequence of one attempt outcome.
+type Transition struct {
+	State           DeliveryState
+	DisableEndpoint bool
+	RetryScheduled  bool
+}
+
+var attemptTransitions = map[AttemptOutcome]Transition{
+	OutcomeDelivered:        {State: StateSucceeded},
+	OutcomeRetrying:         {State: StatePending, RetryScheduled: true},
+	OutcomeExhausted:        {State: StateExhausted},
+	OutcomeEndpointDisabled: {State: StateDisabled, DisableEndpoint: true},
+	OutcomeFailed:           {State: StateFailed},
+}
+
+// Transition returns the single transition an outcome may persist; false marks an unknown outcome.
+func (o AttemptOutcome) Transition() (Transition, bool) {
+	transition, known := attemptTransitions[o]
+	return transition, known
+}
 
 // Attempt is the append-only audit row and the atomic delivery transition.
 type Attempt struct {
@@ -110,21 +134,17 @@ func (s Schedule) resolve(
 		WebhookTimestamp: attemptedAt.Unix(),
 		AttemptedAt:      attemptedAt.UTC(),
 	}
+	if errors.Is(sendErr, errPermanent) {
+		return attempt.concluded(OutcomeFailed)
+	}
 	if sendErr == nil && result.StatusCode >= 200 && result.StatusCode <= 299 {
-		attempt.Outcome = OutcomeDelivered
-		attempt.State = StateSucceeded
-		return attempt
+		return attempt.concluded(OutcomeDelivered)
 	}
 	if sendErr == nil && result.StatusCode == http.StatusGone {
-		attempt.Outcome = OutcomeEndpointDisabled
-		attempt.State = StateDisabled
-		attempt.DisableEndpoint = true
-		return attempt
+		return attempt.concluded(OutcomeEndpointDisabled)
 	}
 	if number > len(s.delays) {
-		attempt.Outcome = OutcomeExhausted
-		attempt.State = StateExhausted
-		return attempt
+		return attempt.concluded(OutcomeExhausted)
 	}
 	completion := completedAt.UTC()
 	if completion.Before(attemptedAt) {
@@ -143,10 +163,16 @@ func (s Schedule) resolve(
 	if retryAt.After(nextAttemptAt) {
 		nextAttemptAt = retryAt
 	}
-	attempt.Outcome = OutcomeRetrying
-	attempt.State = StatePending
 	attempt.NextAttemptAt = nextAttemptAt.UTC()
-	return attempt
+	return attempt.concluded(OutcomeRetrying)
+}
+
+func (a Attempt) concluded(outcome AttemptOutcome) Attempt {
+	transition, _ := outcome.Transition()
+	a.Outcome = outcome
+	a.State = transition.State
+	a.DisableEndpoint = transition.DisableEndpoint
+	return a
 }
 
 func boundedError(err error) string {

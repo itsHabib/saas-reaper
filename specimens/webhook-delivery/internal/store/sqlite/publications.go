@@ -10,38 +10,47 @@ import (
 	"github.com/itsHabib/saas-reaper/specimens/webhook-delivery/internal/delivery"
 )
 
-// Publish atomically stores one exact message body and its supplied enabled deliveries.
+// Publish atomically stores one exact message body and returns the deliveries it queued.
+//
+// An endpoint disabled since the caller snapshotted it is skipped inside the
+// transaction rather than failing the message and its healthy siblings.
 func (s *Store) Publish(
 	ctx context.Context,
 	message delivery.Message,
 	deliveries []delivery.Delivery,
-) error {
+) ([]delivery.Delivery, error) {
 	if err := validateMessage(message); err != nil {
-		return err
+		return nil, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin publication %s: %w", message.ID, err)
+		return nil, fmt.Errorf("begin publication %s: %w", message.ID, err)
 	}
 	defer tx.Rollback()
 	if err := insertMessage(ctx, tx, message); err != nil {
-		return err
+		return nil, err
 	}
+	queued := make([]delivery.Delivery, 0, len(deliveries))
 	for _, item := range deliveries {
 		if item.MessageID != message.ID || item.Actor != message.Actor || item.Kind != delivery.DeliveryOriginal {
-			return fmt.Errorf("%w: publication delivery does not match message %s", delivery.ErrInvalid, message.ID)
+			return nil, fmt.Errorf("%w: publication delivery does not match message %s", delivery.ErrInvalid, message.ID)
 		}
-		if err := requireEndpointEnabled(ctx, tx, item.EndpointID); err != nil {
-			return err
+		enabled, err := endpointEnabled(ctx, tx, item.EndpointID)
+		if err != nil {
+			return nil, err
+		}
+		if !enabled {
+			continue
 		}
 		if err := insertDelivery(ctx, tx, item); err != nil {
-			return err
+			return nil, err
 		}
+		queued = append(queued, item)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit publication %s: %w", message.ID, err)
+		return nil, fmt.Errorf("commit publication %s: %w", message.ID, err)
 	}
-	return nil
+	return queued, nil
 }
 
 // Message returns one immutable message with an independent payload copy.
@@ -156,18 +165,26 @@ func requireMessage(ctx context.Context, tx *sql.Tx, id string) error {
 }
 
 func requireEndpointEnabled(ctx context.Context, tx *sql.Tx, id string) error {
-	var enabled int
-	err := tx.QueryRowContext(ctx, `SELECT enabled FROM endpoints WHERE id = ?`, id).Scan(&enabled)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("%w: endpoint %s", delivery.ErrNotFound, id)
-	}
+	enabled, err := endpointEnabled(ctx, tx, id)
 	if err != nil {
-		return fmt.Errorf("check endpoint %s: %w", id, err)
+		return err
 	}
-	if enabled != 1 {
+	if !enabled {
 		return fmt.Errorf("%w: endpoint %s", delivery.ErrDisabled, id)
 	}
 	return nil
+}
+
+func endpointEnabled(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
+	var enabled int
+	err := tx.QueryRowContext(ctx, `SELECT enabled FROM endpoints WHERE id = ?`, id).Scan(&enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("%w: endpoint %s", delivery.ErrNotFound, id)
+	}
+	if err != nil {
+		return false, fmt.Errorf("check endpoint %s: %w", id, err)
+	}
+	return enabled == 1, nil
 }
 
 func scanMessage(row rowScanner) (delivery.Message, error) {

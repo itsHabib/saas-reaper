@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// reachableWalkStates pins the durable state space for a two-delay schedule; change it deliberately.
+const reachableWalkStates = 13
+
 type walkState struct {
 	state    DeliveryState
 	attempts int
@@ -42,10 +45,13 @@ func TestRetryStateSpaceExhaustiveWalk(t *testing.T) {
 		}
 		queue = append(queue, walkTransitions(schedule, current)...)
 	}
-	for _, expected := range []DeliveryState{StateSucceeded, StateExhausted, StateDisabled} {
+	for _, expected := range []DeliveryState{StateSucceeded, StateExhausted, StateDisabled, StateFailed} {
 		if !terminal[expected] {
 			t.Fatalf("state walk never reached %s", expected)
 		}
+	}
+	if len(seen) != reachableWalkStates {
+		t.Fatalf("reachable states = %d, want %d", len(seen), reachableWalkStates)
 	}
 }
 
@@ -65,6 +71,7 @@ func walkTransitions(schedule Schedule, current walkState) []walkState {
 		{result: SendResult{StatusCode: 500}},
 		{result: SendResult{StatusCode: 410}},
 		{err: errors.New("network failure")},
+		{err: fmt.Errorf("%w: unsignable secret", errPermanent)},
 	}
 	next := make([]walkState, 0, len(results))
 	for _, result := range results {

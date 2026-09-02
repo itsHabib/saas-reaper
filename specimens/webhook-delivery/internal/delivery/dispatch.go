@@ -4,10 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
-const attemptAuditTimeout = 10 * time.Second
+const (
+	attemptAuditTimeout = 10 * time.Second
+	// auditFailureBackoff keeps a delivery whose attempt could not be audited off the queue head.
+	auditFailureBackoff = 30 * time.Second
+)
 
 // Dispatch is the complete private input for one outbound attempt.
 type Dispatch struct {
@@ -33,12 +38,17 @@ type Sender interface {
 }
 
 // Dispatcher signs due work immediately before sending and persists every outcome.
+//
+// One poller drives a Dispatcher. The store's attempt transaction is the only
+// arbiter between an in-flight send and a concurrent disable: an attempt the
+// store rejects as conflicting or disabled lost that race and is not retried.
 type Dispatcher struct {
 	store    DispatchStore
 	sender   Sender
 	schedule Schedule
 	now      Clock
-	attempts *AttemptCoordinator
+	logger   *slog.Logger
+	parked   map[string]time.Time
 }
 
 // NewDispatcher composes policy with swappable persistence, HTTP, and time mechanisms.
@@ -47,62 +57,97 @@ func NewDispatcher(
 	sender Sender,
 	schedule Schedule,
 	now Clock,
-	attempts *AttemptCoordinator,
+	logger *slog.Logger,
 ) (*Dispatcher, error) {
-	if store == nil || sender == nil || now == nil || attempts == nil {
-		return nil, fmt.Errorf("%w: dispatch store, sender, clock, and attempt coordinator are required", ErrInvalid)
+	if store == nil || sender == nil || now == nil || logger == nil {
+		return nil, fmt.Errorf("%w: dispatch store, sender, clock, and logger are required", ErrInvalid)
 	}
-	return &Dispatcher{store: store, sender: sender, schedule: schedule, now: now, attempts: attempts}, nil
+	return &Dispatcher{
+		store:    store,
+		sender:   sender,
+		schedule: schedule,
+		now:      now,
+		logger:   logger,
+		parked:   map[string]time.Time{},
+	}, nil
 }
 
-// DeliverDue attempts at most limit due deliveries in deterministic queue order.
+// DeliverDue attempts one batch of at most limit due deliveries in deterministic queue order.
+//
+// A delivery whose attempt cannot be audited is parked in memory for
+// auditFailureBackoff so the rest of the queue keeps moving; the returned
+// count covers attempted deliveries and the error joins every audit failure.
 func (d *Dispatcher) DeliverDue(ctx context.Context, limit int) (int, error) {
 	if limit < 1 || limit > 100 {
 		return 0, fmt.Errorf("%w: due limit must be between 1 and 100", ErrInvalid)
 	}
-	var dispatchErrors []error
+	now := d.now().UTC()
+	due, err := d.store.Due(ctx, now, limit)
+	if err != nil {
+		return 0, fmt.Errorf("load due deliveries: %w", err)
+	}
+	d.releaseParked(now)
 	attempted := 0
-	for attempted < limit {
-		found := false
-		err := d.attempts.run(ctx, func() error {
-			due, dueErr := d.store.Due(ctx, d.now().UTC(), 1)
-			if dueErr != nil {
-				return fmt.Errorf("load due deliveries: %w", dueErr)
-			}
-			if len(due) == 0 {
-				return nil
-			}
-			found = true
-			return d.deliver(ctx, due[0])
-		})
-		if found {
-			attempted++
+	var dispatchErrors []error
+	for _, item := range due {
+		if ctx.Err() != nil {
+			break
 		}
-		if err != nil {
+		if _, parked := d.parked[item.DeliveryID]; parked {
+			continue
+		}
+		attempted++
+		if err := d.deliver(ctx, item); err != nil {
 			dispatchErrors = append(dispatchErrors, err)
-			break
-		}
-		if !found {
-			break
 		}
 	}
 	return attempted, errors.Join(dispatchErrors...)
 }
 
+func (d *Dispatcher) releaseParked(now time.Time) {
+	for id, until := range d.parked {
+		if !until.After(now) {
+			delete(d.parked, id)
+		}
+	}
+}
+
 func (d *Dispatcher) deliver(ctx context.Context, item Dispatch) error {
 	attemptedAt := d.now().UTC()
-	headers, signErr := Sign(item.Secret, item.MessageID, attemptedAt, item.Payload)
-	result := SendResult{}
-	var sendErr error
-	if signErr == nil {
-		result, sendErr = d.sender.Send(ctx, item.Destination, item.Payload, headers)
+	headers, err := Sign(item.Secret, item.MessageID, attemptedAt, item.Payload)
+	if err != nil {
+		return d.record(ctx, item, SendResult{}, fmt.Errorf("%w: %w", errPermanent, err), attemptedAt)
 	}
+	result, sendErr := d.sender.Send(ctx, item.Destination, item.Payload, headers)
+	return d.record(ctx, item, result, sendErr, attemptedAt)
+}
+
+func (d *Dispatcher) record(
+	ctx context.Context,
+	item Dispatch,
+	result SendResult,
+	sendErr error,
+	attemptedAt time.Time,
+) error {
 	completedAt := d.now().UTC()
-	attempt := d.schedule.resolve(item, result, errors.Join(signErr, sendErr), attemptedAt, completedAt)
+	attempt := d.schedule.resolve(item, result, sendErr, attemptedAt, completedAt)
 	auditContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), attemptAuditTimeout)
 	defer cancel()
-	if err := d.store.RecordAttempt(auditContext, attempt); err != nil {
-		return fmt.Errorf("record delivery %s attempt %d: %w", item.DeliveryID, attempt.Number, err)
+	err := d.store.RecordAttempt(auditContext, attempt)
+	if err == nil {
+		return nil
 	}
-	return nil
+	if errors.Is(err, ErrConflict) || errors.Is(err, ErrDisabled) {
+		d.logger.InfoContext(ctx, "delivery attempt lost a concurrent transition",
+			"delivery", item.DeliveryID, "attempt", attempt.Number, "reason", err)
+		return nil
+	}
+	d.parked[item.DeliveryID] = completedAt.Add(auditFailureBackoff)
+	return fmt.Errorf(
+		"record delivery %s attempt %d (parked for %s): %w",
+		item.DeliveryID,
+		attempt.Number,
+		auditFailureBackoff,
+		err,
+	)
 }
