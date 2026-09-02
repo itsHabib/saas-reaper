@@ -115,11 +115,23 @@ func TestEndpointRevisionDisableAndPublicationRace(t *testing.T) {
 	}
 	assertDeliveryState(t, store, item.ID, delivery.StateDisabled, 0)
 
+	assertDisabledEndpointAcceptsNoWork(t, store, endpoint.ID, message.ID, at)
+}
+
+func assertDisabledEndpointAcceptsNoWork(
+	t *testing.T,
+	store *Store,
+	endpointID string,
+	messageID string,
+	at time.Time,
+) {
+	t.Helper()
+	ctx := context.Background()
 	lateMessage := testMessage("msg_after_disable", at.Add(3*time.Second))
 	late := testDelivery(
 		"del_after_disable",
 		lateMessage.ID,
-		endpoint.ID,
+		endpointID,
 		delivery.DeliveryOriginal,
 		lateMessage.CreatedAt,
 	)
@@ -135,8 +147,8 @@ func TestEndpointRevisionDisableAndPublicationRace(t *testing.T) {
 	}
 	replay := testDelivery(
 		"del_disabled_replay",
-		message.ID,
-		endpoint.ID,
+		messageID,
+		endpointID,
 		delivery.DeliveryReplay,
 		at.Add(4*time.Second),
 	)
