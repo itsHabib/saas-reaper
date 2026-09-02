@@ -152,15 +152,24 @@ composition root is `cmd/reaper-webhooks`.
 
 Delivery is at least once. A receiver can accept a request immediately before
 the process loses the corresponding SQLite commit; the pending delivery will
-then be sent again. Consumers should use `webhook-id` for idempotency. Disable
-prevents new work and queued retries after its transaction commits. The shared
-single-worker attempt coordinator makes disable wait for an active send and its
-atomic audit transition before committing; it cannot recall a request already
-accepted by the receiver. Graceful shutdown cancels outbound I/O, records that
-final outcome with a bounded audit context, and waits for the poller before the
-SQLite authority closes.
+then be sent again. Consumers should use `webhook-id` for idempotency. A 2xx
+status is terminal even when the response body cannot be drained. Disable
+commits immediately and prevents new work and queued retries; the attempt
+transaction is the only arbiter between an in-flight send and a concurrent
+disable, so an attempt that lost that race is dropped without an audit row and
+never retried. Disable cannot recall a request already accepted by the
+receiver. Publication skips an endpoint disabled since it was listed rather
+than failing the message and its other deliveries. A delivery whose stored
+secret cannot sign terminates as `failed` after one audit row. A delivery whose
+attempt cannot be audited is parked in memory for thirty seconds so the rest
+of the queue keeps moving. Graceful shutdown cancels outbound I/O, records that
+final outcome with a bounded audit context, starts no further sends, and waits
+for the poller before the SQLite authority closes.
 
-This specimen has one worker and one SQLite authority. The database file is
+This specimen has one worker process and one SQLite authority; two processes
+sharing one database file are not safe, because due work is selected without a
+lease. The schema is created once and not migrated, so a database created by
+an earlier revision must be recreated. The database file is
 created and enforced as owner-only (`0600`). Endpoint secrets are stored in
 that customer-owned database without application-layer encryption.
 The authenticated management principal is trusted to choose destinations;
