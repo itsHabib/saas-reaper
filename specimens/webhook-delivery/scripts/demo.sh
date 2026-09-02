@@ -43,7 +43,7 @@ terminate_pid() {
 
 cleanup() {
   local pid
-  for pid in "${pids[@]}"; do
+  for pid in ${pids[@]+"${pids[@]}"}; do
     terminate_pid "$pid"
   done
   if [[ "$work_dir" == /tmp/* || "$work_dir" == /var/folders/* ]]; then

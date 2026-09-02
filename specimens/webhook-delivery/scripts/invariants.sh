@@ -45,7 +45,7 @@ terminate_pid() {
 
 cleanup() {
   local pid
-  for pid in "${pids[@]}"; do
+  for pid in ${pids[@]+"${pids[@]}"}; do
     terminate_pid "$pid"
   done
   if [[ "$work_dir" == /tmp/* || "$work_dir" == /var/folders/* ]]; then
@@ -122,7 +122,7 @@ stop_service() {
     return
   fi
   terminate_pid "$server_pid"
-  for index in "${!pids[@]}"; do
+  for index in ${pids[@]+"${!pids[@]}"}; do
     if [[ "${pids[index]}" != "$server_pid" ]]; then
       continue
     fi
