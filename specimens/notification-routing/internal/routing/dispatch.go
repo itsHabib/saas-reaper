@@ -41,9 +41,10 @@ type Transport interface {
 	Deliver(context.Context, Envelope) (Receipt, error)
 }
 
-// DispatchStore supplies due work and atomically records attempt plus transition.
+// DispatchStore supplies due work, rechecks it, and atomically records attempt plus transition.
 type DispatchStore interface {
 	Due(context.Context, time.Time, int) ([]Dispatch, error)
+	Deliverable(context.Context, string) (bool, error)
 	RecordAttempt(context.Context, Attempt) error
 }
 
@@ -75,11 +76,17 @@ func NewDispatcher(
 	return &Dispatcher{store: store, transports: copied, schedule: schedule, now: now}, nil
 }
 
-// DeliverDue attempts one batch of due deliveries in queue order.
+// DeliverDue attempts one batch of due deliveries in queue order and returns how many were
+// actually sent.
 //
 // A failed audit write for one delivery never stops its siblings: the loop continues and the
 // joined errors are returned for logging. Deterministic audit rejections (a channel disabled or
 // a state changed under the send) are resolved by the store, so no row can poison the queue.
+//
+// Every item is rechecked immediately before its transport call, because a batch is a snapshot:
+// without the recheck a channel disabled partway through would still have the rest of the batch
+// sent to it. The recheck narrows that window to one in-flight send, which no lock could close
+// without holding a permit across network I/O.
 func (d *Dispatcher) DeliverDue(ctx context.Context, limit int) (int, error) {
 	if limit < 1 || limit > 100 {
 		return 0, fmt.Errorf("%w: due limit must be between 1 and 100", ErrInvalid)
@@ -89,15 +96,27 @@ func (d *Dispatcher) DeliverDue(ctx context.Context, limit int) (int, error) {
 		return 0, fmt.Errorf("load due deliveries: %w", err)
 	}
 	var dispatchErrors []error
+	attempted := 0
 	for _, item := range due {
-		if err := d.deliver(ctx, item); err != nil {
+		sent, err := d.deliver(ctx, item)
+		if sent {
+			attempted++
+		}
+		if err != nil {
 			dispatchErrors = append(dispatchErrors, err)
 		}
 	}
-	return len(due), errors.Join(dispatchErrors...)
+	return attempted, errors.Join(dispatchErrors...)
 }
 
-func (d *Dispatcher) deliver(ctx context.Context, item Dispatch) error {
+func (d *Dispatcher) deliver(ctx context.Context, item Dispatch) (bool, error) {
+	deliverable, err := d.store.Deliverable(ctx, item.DeliveryID)
+	if err != nil {
+		return false, fmt.Errorf("recheck delivery %s: %w", item.DeliveryID, err)
+	}
+	if !deliverable {
+		return false, nil
+	}
 	attemptedAt := d.now().UTC()
 	receipt, sendErr := d.send(ctx, item, attemptedAt)
 	completedAt := d.now().UTC()
@@ -105,9 +124,9 @@ func (d *Dispatcher) deliver(ctx context.Context, item Dispatch) error {
 	auditContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), attemptAuditTimeout)
 	defer cancel()
 	if err := d.store.RecordAttempt(auditContext, attempt); err != nil {
-		return fmt.Errorf("record delivery %s attempt %d: %w", item.DeliveryID, attempt.Number, err)
+		return true, fmt.Errorf("record delivery %s attempt %d: %w", item.DeliveryID, attempt.Number, err)
 	}
-	return nil
+	return true, nil
 }
 
 func (d *Dispatcher) send(ctx context.Context, item Dispatch, attemptedAt time.Time) (Receipt, error) {

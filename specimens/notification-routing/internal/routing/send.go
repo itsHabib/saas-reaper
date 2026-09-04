@@ -2,6 +2,7 @@ package routing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ type ManagementStore interface {
 	Templates(context.Context, string) ([]Template, error)
 	CreateRecipient(context.Context, Recipient) error
 	Recipient(context.Context, string) (Recipient, error)
+	AcceptedNotification(context.Context, string) (Acceptance, string, error)
 	Send(context.Context, Notification, []Delivery) (Acceptance, error)
 }
 
@@ -136,6 +138,13 @@ func (s *Service) Send(ctx context.Context, request SendRequest) (Acceptance, er
 	if err != nil {
 		return Acceptance{}, err
 	}
+	settled, resolved, err := s.resolveIdempotencyKey(ctx, notification)
+	if err != nil {
+		return Acceptance{}, err
+	}
+	if settled {
+		return resolved, nil
+	}
 	targets, err := s.loadTargets(ctx, request.TemplateKey, request.RecipientID)
 	if err != nil {
 		return Acceptance{}, err
@@ -149,6 +158,26 @@ func (s *Service) Send(ctx context.Context, request SendRequest) (Acceptance, er
 		return Acceptance{}, fmt.Errorf("persist notification: %w", err)
 	}
 	return acceptance, nil
+}
+
+// resolveIdempotencyKey settles a reused key before any target loading or rendering, so key
+// reuse answers the same way whether or not the replacement request would independently
+// validate. Store.Send stays the arbiter for keys first used concurrently with this one.
+func (s *Service) resolveIdempotencyKey(ctx context.Context, notification Notification) (bool, Acceptance, error) {
+	accepted, fingerprint, err := s.store.AcceptedNotification(ctx, notification.IdempotencyKey)
+	if errors.Is(err, ErrNotFound) {
+		return false, Acceptance{}, nil
+	}
+	if err != nil {
+		return false, Acceptance{}, fmt.Errorf("load idempotency key: %w", err)
+	}
+	if fingerprint != notification.Fingerprint {
+		return false, Acceptance{}, fmt.Errorf(
+			"%w: idempotency key %s was accepted for a different template, recipient, or payload",
+			ErrConflict, notification.IdempotencyKey,
+		)
+	}
+	return true, accepted, nil
 }
 
 type sendTargets struct {

@@ -86,6 +86,17 @@ func (s *apiTestStore) Recipient(_ context.Context, id string) (routing.Recipien
 	return recipient, nil
 }
 
+func (s *apiTestStore) AcceptedNotification(_ context.Context, key string) (routing.Acceptance, string, error) {
+	if s.notification.IdempotencyKey != key {
+		return routing.Acceptance{}, "", routing.ErrNotFound
+	}
+	acceptance := routing.Acceptance{NotificationID: s.notification.ID, Deduplicated: true}
+	for _, item := range s.deliveries {
+		acceptance.Deliveries = append(acceptance.Deliveries, routing.QueuedDelivery{ID: item.ID, ChannelID: item.ChannelID})
+	}
+	return acceptance, s.notification.Fingerprint, nil
+}
+
 func (s *apiTestStore) Send(_ context.Context, notification routing.Notification, deliveries []routing.Delivery) (routing.Acceptance, error) {
 	s.sendCalls++
 	if s.notification.IdempotencyKey == notification.IdempotencyKey {

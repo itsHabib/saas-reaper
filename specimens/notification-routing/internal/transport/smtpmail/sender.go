@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/smtp"
 	"net/textproto"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,7 +73,8 @@ func (s *Sender) Deliver(ctx context.Context, envelope routing.Envelope) (routin
 	stop := context.AfterFunc(ctx, func() { _ = client.Close() })
 	defer stop()
 	if err := s.transact(client, envelope); err != nil {
-		return receiptFor(err), classify(err)
+		receipt := receiptFor(err)
+		return receipt, classify(err)
 	}
 	return routing.Receipt{Code: acceptedReplyCode, Detail: "accepted"}, nil
 }
@@ -167,10 +169,20 @@ func receiptFor(err error) routing.Receipt {
 	return routing.Receipt{}
 }
 
+// classify decides terminality and redacts in one place, because the returned error is what
+// the dispatcher persists in the attempt audit and the lower-authority read token can see.
+//
+// A reply code is safe structured evidence and is kept. Reply text is not: relays routinely
+// echo the rejected mailbox or their own hostname into it. Every path therefore returns a
+// fixed label, with the original preserved through Unwrap for local diagnosis only.
 func classify(err error) error {
 	var reply *textproto.Error
-	if errors.As(err, &reply) && reply.Code >= 500 && reply.Code <= 599 {
-		return fmt.Errorf("%w: %w", routing.ErrPermanent, err)
+	if errors.As(err, &reply) {
+		redacted := redactedError{label: "smtp relay replied " + strconv.Itoa(reply.Code), cause: err}
+		if reply.Code >= 500 && reply.Code <= 599 {
+			return fmt.Errorf("%w: %w", routing.ErrPermanent, redacted)
+		}
+		return redacted
 	}
 	return redact(err)
 }
@@ -178,14 +190,10 @@ func classify(err error) error {
 // redact keeps the failure class and cause chain but never the relay address or mailbox.
 func redact(err error) error {
 	var networkError net.Error
-	if errors.As(err, &networkError) {
-		label := "smtp transport failure"
-		if networkError.Timeout() {
-			label = "smtp transport timeout"
-		}
-		return redactedError{label: label, cause: err}
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return redactedError{label: "smtp transport timeout", cause: err}
 	}
-	return err
+	return redactedError{label: "smtp transport failure", cause: err}
 }
 
 type redactedError struct {

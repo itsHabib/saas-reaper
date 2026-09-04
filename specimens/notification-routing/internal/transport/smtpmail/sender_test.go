@@ -8,6 +8,8 @@ import (
 	"mime"
 	"net"
 	"net/mail"
+	"net/textproto"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -41,7 +43,11 @@ func (*fixtureSession) Mail(string, *gosmtp.MailOptions) error { return nil }
 
 func (s *fixtureSession) Rcpt(string, *gosmtp.RcptOptions) error {
 	if s.backend.rcptCode != 0 {
-		return &gosmtp.SMTPError{Code: s.backend.rcptCode, EnhancedCode: gosmtp.EnhancedCode{5, 1, 1}, Message: "no such user"}
+		return &gosmtp.SMTPError{
+			Code:         s.backend.rcptCode,
+			EnhancedCode: gosmtp.EnhancedCode{5, 1, 1},
+			Message:      "<billing@acme.example>: recipient rejected by relay-7.mail.internal",
+		}
 	}
 	return nil
 }
@@ -153,6 +159,38 @@ func TestDeliverClassifiesReplies(t *testing.T) {
 			}
 			if receipt.Code != test.wantCode {
 				t.Fatalf("receipt = %#v, want code %d", receipt, test.wantCode)
+			}
+		})
+	}
+}
+
+// The returned error is what the dispatcher persists in the attempt audit, which the
+// lower-authority read token can see. Relays routinely echo the rejected mailbox and their own
+// hostname into reply text, so the code survives and the text must not.
+func TestDeliverKeepsReplyCodeButNeverReplyText(t *testing.T) {
+	for _, code := range []int{451, 550} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			backend := &fixtureBackend{rcptCode: code}
+			sender := newSender(t, startFixture(t, backend))
+			receipt, err := sender.Deliver(context.Background(), testEnvelope())
+			if err == nil {
+				t.Fatal("delivery unexpectedly succeeded")
+			}
+			if receipt.Code != code {
+				t.Fatalf("receipt code = %d, want %d", receipt.Code, code)
+			}
+			persisted := err.Error()
+			for _, secret := range []string{"acme.example", "relay-7.mail.internal", "recipient rejected"} {
+				if strings.Contains(persisted, secret) {
+					t.Fatalf("persisted error %q leaked %q", persisted, secret)
+				}
+			}
+			if !strings.Contains(persisted, strconv.Itoa(code)) {
+				t.Fatalf("persisted error %q dropped the reply code", persisted)
+			}
+			var reply *textproto.Error
+			if !errors.As(err, &reply) {
+				t.Fatalf("error lost its reply cause: %v", err)
 			}
 		})
 	}

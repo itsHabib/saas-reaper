@@ -8,7 +8,13 @@ import (
 	"time"
 )
 
+type acceptedSend struct {
+	acceptance  Acceptance
+	fingerprint string
+}
+
 type managementMemory struct {
+	accepted     map[string]acceptedSend
 	channels     []Channel
 	templates    []Template
 	recipients   map[string]Recipient
@@ -70,6 +76,14 @@ func (m *managementMemory) Recipient(_ context.Context, id string) (Recipient, e
 	return recipient, nil
 }
 
+func (m *managementMemory) AcceptedNotification(_ context.Context, key string) (Acceptance, string, error) {
+	accepted, ok := m.accepted[key]
+	if !ok {
+		return Acceptance{}, "", ErrNotFound
+	}
+	return accepted.acceptance, accepted.fingerprint, nil
+}
+
 func (m *managementMemory) Send(_ context.Context, notification Notification, deliveries []Delivery) (Acceptance, error) {
 	m.sendCalls++
 	m.notification = notification
@@ -77,6 +91,14 @@ func (m *managementMemory) Send(_ context.Context, notification Notification, de
 	acceptance := Acceptance{NotificationID: notification.ID}
 	for _, item := range deliveries {
 		acceptance.Deliveries = append(acceptance.Deliveries, QueuedDelivery{ID: item.ID, ChannelID: item.ChannelID})
+	}
+	if m.accepted == nil {
+		m.accepted = map[string]acceptedSend{}
+	}
+	deduplicated := acceptance
+	deduplicated.Deduplicated = true
+	m.accepted[notification.IdempotencyKey] = acceptedSend{
+		acceptance: deduplicated, fingerprint: notification.Fingerprint,
 	}
 	return acceptance, nil
 }
@@ -196,6 +218,53 @@ func TestSendRejectsMissingVariableBeforePersisting(t *testing.T) {
 	}
 	if store.sendCalls != 0 {
 		t.Fatalf("send calls = %d, want 0 after a rendering rejection", store.sendCalls)
+	}
+}
+
+// A reused key must answer the same way whether or not the replacement request would
+// independently validate, so the key is settled before any rendering happens.
+func TestSendSettlesAReusedKeyBeforeRendering(t *testing.T) {
+	store := &managementMemory{}
+	service := newTestService(t, store)
+	seedTargets(t, service)
+	ctx := context.Background()
+	if _, err := service.CreateRecipient(ctx, "cus_acme", []Binding{
+		{ChannelID: "email", Address: "billing@acme.example", Enabled: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"customer":"Acme","invoice":{"id":"inv_1","amount":4200}}`)
+	first, err := service.Send(ctx, SendRequest{
+		TemplateKey: "invoice-paid", RecipientID: "cus_acme", Payload: payload, IdempotencyKey: "reused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sendsAfterFirst := store.sendCalls
+
+	repeat, err := service.Send(ctx, SendRequest{
+		TemplateKey: "invoice-paid", RecipientID: "cus_acme", Payload: payload, IdempotencyKey: "reused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repeat.Deduplicated || repeat.NotificationID != first.NotificationID {
+		t.Fatalf("repeat = %#v, want the first acceptance %s", repeat, first.NotificationID)
+	}
+	if store.sendCalls != sendsAfterFirst {
+		t.Fatalf("send calls = %d, want the deduplicated re-send settled without persisting", store.sendCalls)
+	}
+
+	// The replacement payload is missing a variable the template needs. Rendering it would
+	// answer 400; the reused key must still answer 409.
+	_, err = service.Send(ctx, SendRequest{
+		TemplateKey:    "invoice-paid",
+		RecipientID:    "cus_acme",
+		Payload:        []byte(`{"invoice":{"id":"inv_2"}}`),
+		IdempotencyKey: "reused",
+	})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("error = %v, want conflict rather than a rendering rejection", err)
 	}
 }
 

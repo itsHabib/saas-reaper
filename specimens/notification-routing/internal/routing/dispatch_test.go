@@ -9,9 +9,14 @@ import (
 )
 
 type dispatchMemory struct {
-	due      []Dispatch
-	attempts []Attempt
-	failFor  map[string]error
+	due           []Dispatch
+	attempts      []Attempt
+	failFor       map[string]error
+	undeliverable map[string]bool
+}
+
+func (m *dispatchMemory) Deliverable(_ context.Context, deliveryID string) (bool, error) {
+	return !m.undeliverable[deliveryID], nil
 }
 
 func (m *dispatchMemory) Due(context.Context, time.Time, int) ([]Dispatch, error) {
@@ -134,6 +139,40 @@ func TestDispatcherContinuesPastAFailedAuditWrite(t *testing.T) {
 	}
 	if len(store.attempts) != 1 || store.attempts[0].DeliveryID != "del_healthy" {
 		t.Fatalf("attempts = %#v, want the healthy sibling audited", store.attempts)
+	}
+}
+
+// A batch is a snapshot. If a channel is disabled while an earlier item in that batch is still
+// in flight, every later item must be rechecked and skipped rather than sent to the channel the
+// operator just turned off.
+func TestDispatcherSkipsWorkDisabledAfterTheBatchWasLoaded(t *testing.T) {
+	store := &dispatchMemory{
+		due: []Dispatch{
+			testDispatch("del_first", KindSMTP),
+			testDispatch("del_disabled", KindSMTP),
+		},
+		undeliverable: map[string]bool{"del_disabled": true},
+	}
+	transport := &transportStub{receipt: Receipt{Code: 250}}
+	schedule, err := NewSchedule(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher, err := NewDispatcher(
+		store, map[ChannelKind]Transport{KindSMTP: transport}, schedule, func() time.Time { return time.Unix(80, 0) },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count, err := dispatcher.DeliverDue(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || len(transport.envelopes) != 1 || transport.envelopes[0].DeliveryID != "del_first" {
+		t.Fatalf("count = %d, envelopes = %#v; want only the still-deliverable item sent", count, transport.envelopes)
+	}
+	if len(store.attempts) != 1 || store.attempts[0].DeliveryID != "del_first" {
+		t.Fatalf("attempts = %#v, want no audit row for the skipped delivery", store.attempts)
 	}
 }
 

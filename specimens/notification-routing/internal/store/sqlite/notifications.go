@@ -51,6 +51,62 @@ func (s *Store) Send(
 	return acceptance, nil
 }
 
+// AcceptedNotification returns the acceptance an idempotency key already produced, with the
+// fingerprint of the send that produced it, or ErrNotFound when the key is unused.
+func (s *Store) AcceptedNotification(ctx context.Context, key string) (routing.Acceptance, string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return routing.Acceptance{}, "", fmt.Errorf("begin idempotency lookup: %w", err)
+	}
+	defer tx.Rollback()
+	acceptance, fingerprint, err := acceptanceForKey(ctx, tx, key)
+	if err != nil {
+		return routing.Acceptance{}, "", err
+	}
+	return acceptance, fingerprint, nil
+}
+
+func acceptanceForKey(ctx context.Context, tx *sql.Tx, key string) (routing.Acceptance, string, error) {
+	var existingID string
+	var fingerprint string
+	err := tx.QueryRowContext(
+		ctx,
+		`SELECT id, fingerprint FROM notifications WHERE idempotency_key = ?`,
+		key,
+	).Scan(&existingID, &fingerprint)
+	if errors.Is(err, sql.ErrNoRows) {
+		return routing.Acceptance{}, "", fmt.Errorf("%w: idempotency key %s", routing.ErrNotFound, key)
+	}
+	if err != nil {
+		return routing.Acceptance{}, "", fmt.Errorf("load notification for idempotency key: %w", err)
+	}
+	rows, err := tx.QueryContext(
+		ctx,
+		`SELECT id, channel_id FROM deliveries WHERE notification_id = ? ORDER BY created_at, id`,
+		existingID,
+	)
+	if err != nil {
+		return routing.Acceptance{}, "", fmt.Errorf("load earlier deliveries for %s: %w", existingID, err)
+	}
+	defer rows.Close()
+	acceptance := routing.Acceptance{
+		NotificationID: existingID,
+		Deduplicated:   true,
+		Deliveries:     []routing.QueuedDelivery{},
+	}
+	for rows.Next() {
+		var queued routing.QueuedDelivery
+		if err := rows.Scan(&queued.ID, &queued.ChannelID); err != nil {
+			return routing.Acceptance{}, "", fmt.Errorf("scan earlier delivery for %s: %w", existingID, err)
+		}
+		acceptance.Deliveries = append(acceptance.Deliveries, queued)
+	}
+	if err := rows.Err(); err != nil {
+		return routing.Acceptance{}, "", fmt.Errorf("iterate earlier deliveries for %s: %w", existingID, err)
+	}
+	return acceptance, fingerprint, nil
+}
+
 func insertNotification(ctx context.Context, tx *sql.Tx, notification routing.Notification) (bool, error) {
 	result, err := tx.ExecContext(
 		ctx,
@@ -78,41 +134,15 @@ func insertNotification(ctx context.Context, tx *sql.Tx, notification routing.No
 }
 
 func earlierAcceptance(ctx context.Context, tx *sql.Tx, notification routing.Notification) (routing.Acceptance, error) {
-	var existingID string
-	var fingerprint string
-	err := tx.QueryRowContext(
-		ctx,
-		`SELECT id, fingerprint FROM notifications WHERE idempotency_key = ?`,
-		notification.IdempotencyKey,
-	).Scan(&existingID, &fingerprint)
+	acceptance, fingerprint, err := acceptanceForKey(ctx, tx, notification.IdempotencyKey)
 	if err != nil {
-		return routing.Acceptance{}, fmt.Errorf("load earlier notification for key: %w", err)
+		return routing.Acceptance{}, err
 	}
 	if fingerprint != notification.Fingerprint {
 		return routing.Acceptance{}, fmt.Errorf(
 			"%w: idempotency key %s was accepted for a different template, recipient, or payload",
 			routing.ErrConflict, notification.IdempotencyKey,
 		)
-	}
-	rows, err := tx.QueryContext(
-		ctx,
-		`SELECT id, channel_id FROM deliveries WHERE notification_id = ? ORDER BY created_at, id`,
-		existingID,
-	)
-	if err != nil {
-		return routing.Acceptance{}, fmt.Errorf("load earlier deliveries for %s: %w", existingID, err)
-	}
-	defer rows.Close()
-	acceptance := routing.Acceptance{NotificationID: existingID, Deduplicated: true, Deliveries: []routing.QueuedDelivery{}}
-	for rows.Next() {
-		var queued routing.QueuedDelivery
-		if err := rows.Scan(&queued.ID, &queued.ChannelID); err != nil {
-			return routing.Acceptance{}, fmt.Errorf("scan earlier delivery for %s: %w", existingID, err)
-		}
-		acceptance.Deliveries = append(acceptance.Deliveries, queued)
-	}
-	if err := rows.Err(); err != nil {
-		return routing.Acceptance{}, fmt.Errorf("iterate earlier deliveries for %s: %w", existingID, err)
 	}
 	return acceptance, nil
 }

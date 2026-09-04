@@ -51,6 +51,26 @@ func (s *Store) Due(ctx context.Context, now time.Time, limit int) ([]routing.Di
 	return due, nil
 }
 
+// Deliverable reports whether a delivery loaded in an earlier batch is still pending on a
+// still-enabled channel. The dispatcher calls it immediately before each transport call so a
+// channel disabled partway through a batch cannot have the rest of that batch sent to it.
+func (s *Store) Deliverable(ctx context.Context, deliveryID string) (bool, error) {
+	var found int
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM deliveries AS d
+		 JOIN channels AS c ON c.id = d.channel_id
+		 WHERE d.id = ? AND d.state = ? AND c.enabled = 1`,
+		deliveryID,
+		routing.StatePending,
+	).Scan(&found)
+	if err != nil {
+		return false, fmt.Errorf("recheck delivery %s: %w", deliveryID, err)
+	}
+	return found == 1, nil
+}
+
 // RecordAttempt appends one audit row and applies its delivery transition atomically.
 //
 // A delivery canceled by channel disablement while its send was in flight keeps the audit

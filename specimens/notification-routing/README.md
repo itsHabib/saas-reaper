@@ -123,10 +123,13 @@ pending ──delivered──► delivered
         ──disable───► canceled
 ```
 
-An exhaustive breadth-first walk over that machine pins 13 reachable durable
+An exhaustive breadth-first walk over that machine pins 16 reachable durable
 states under a three-attempt schedule and asserts every terminal state is
 reached; changing the schedule shape or the transition table has to change that
-count deliberately.
+count deliberately. The walk models both shapes of cancellation — before a send,
+which leaves no attempt row, and racing an active send, which still audits the
+completed attempt while the delivery stays canceled. That second shape is the
+only durable state where the audit count exceeds the attempt count.
 
 Delivery is at least once. A transport can accept a message immediately before
 the process loses the corresponding SQLite commit, and the pending delivery is
@@ -159,9 +162,11 @@ A send is
 `{"template":"...","recipient":"...","payload":{...},"idempotencyKey":"..."}`.
 It answers 202 with the queued deliveries, or 200 with the first acceptance
 when the key was already used for the same send. Reusing a key for a different
-template, recipient, or payload is a 409. Every channel variant is rendered
-before anything is queued, so a missing variable rejects the whole send with
-400 rather than delivering to some channels and failing on others.
+template, recipient, or payload is a 409. A reused key is settled before any
+rendering happens, so the answer does not depend on whether the replacement
+request would independently validate. Every channel variant is rendered before
+anything is queued, so a missing variable rejects the whole send with 400 rather
+than delivering to some channels and failing on others.
 
 The read route requires `Authorization: Bearer $REAPER_NOTIFY_READ_TOKEN`:
 
@@ -172,7 +177,9 @@ GET /v1/attempts?notificationId=...&channelId=...&limit=100
 Attempt rows are newest first. They carry the configured management actor, the
 transport's result code, the delivery state, and the next due time — but never
 a recipient address, a webhook URL, or a relay host. Transport failures are
-classified and redacted before the lower-authority audit reader can see them.
+classified and redacted before the lower-authority audit reader can see them:
+an SMTP reply contributes its code but never its text, because relays routinely
+echo the rejected mailbox or their own hostname into that text.
 
 ## Configuration
 
@@ -222,10 +229,16 @@ wire protocol each. `internal/worker` owns waiting and lifecycle only. The
 composition root is `cmd/reaper-notifications`.
 
 A failed audit write for one delivery never stops its siblings: the dispatcher
-records the error and continues the batch, so no row can starve the queue. A
-channel disabled while a send is in flight keeps its audit row — the transport
-call did happen — but the canceled delivery is not transitioned back to
-pending.
+records the error and continues the batch, so no row can starve the queue.
+
+A batch is a snapshot, so every item is rechecked against the store immediately
+before its transport call; a channel disabled partway through a batch cannot
+have the rest of that batch sent to it. That narrows the window to one in-flight
+send, which no lock could close without holding a permit across network I/O.
+When disablement does race an active send, the completed attempt is still
+audited — the transport call did happen — while the delivery stays canceled
+rather than being transitioned back to pending. Disable cannot recall a request
+a transport has already accepted.
 
 This specimen has one worker and one SQLite authority; the store transaction is
 the only arbiter, and two processes on one database file are not supported. The

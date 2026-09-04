@@ -15,12 +15,19 @@ type walkState struct {
 }
 
 // walkEvents are every stimulus a pending delivery can receive: a transport result of each
-// class, or the channel being disabled underneath it.
+// class, or the channel being disabled underneath it. Disablement has two distinct shapes, and
+// the store treats them differently, so the walk models both:
+//
+//   - before the send, the delivery is canceled with no attempt row;
+//   - racing an active send, the completed attempt is still audited (the transport call did
+//     happen) while the delivery stays canceled and its attempt count does not advance, which
+//     is the one durable shape where the audit count exceeds the attempt count.
 type walkEvent struct {
-	name    string
-	receipt Receipt
-	err     error
-	disable bool
+	name     string
+	receipt  Receipt
+	err      error
+	disable  bool
+	inFlight bool
 }
 
 var walkEvents = []walkEvent{
@@ -28,7 +35,8 @@ var walkEvents = []walkEvent{
 	{name: "transient", receipt: Receipt{Code: 451}, err: errors.New("try later")},
 	{name: "permanent", receipt: Receipt{Code: 550}, err: fmt.Errorf("%w: unknown mailbox", ErrPermanent)},
 	{name: "network", err: errors.New("connection refused")},
-	{name: "channel disabled", disable: true},
+	{name: "channel disabled before send", disable: true},
+	{name: "channel disabled during send", disable: true, inFlight: true},
 }
 
 // TestDeliveryStateSpaceExhaustiveWalk pins the reachable durable states of one delivery under a
@@ -42,6 +50,7 @@ func TestDeliveryStateSpaceExhaustiveWalk(t *testing.T) {
 	queue := []walkState{{state: StatePending, enabled: true}}
 	seen := map[string]bool{}
 	terminal := map[DeliveryState]int{}
+	auditedCancellation := false
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
@@ -50,11 +59,16 @@ func TestDeliveryStateSpaceExhaustiveWalk(t *testing.T) {
 			continue
 		}
 		seen[key] = true
-		if current.attempts > schedule.MaxAttempts() || current.audit != current.attempts {
+		// The audit is append-only, so it never lags the attempt count. It leads by exactly
+		// one when a send completed against a channel that was disabled underneath it.
+		if current.attempts > schedule.MaxAttempts() || current.audit < current.attempts || current.audit > current.attempts+1 {
 			t.Fatalf("invalid durable state: %#v", current)
 		}
 		if current.state != StatePending {
 			terminal[current.state]++
+			if current.state == StateCanceled && current.audit > current.attempts {
+				auditedCancellation = true
+			}
 			continue
 		}
 		if !current.enabled {
@@ -62,11 +76,14 @@ func TestDeliveryStateSpaceExhaustiveWalk(t *testing.T) {
 		}
 		queue = append(queue, walkTransitions(schedule, current)...)
 	}
-	const wantReachable = 13
+	const wantReachable = 16
 	if len(seen) != wantReachable {
 		t.Fatalf("reachable states = %d, want %d: %v", len(seen), wantReachable, seen)
 	}
-	want := map[DeliveryState]int{StateDelivered: 3, StateFailed: 3, StateExhausted: 1, StateCanceled: 3}
+	if !auditedCancellation {
+		t.Fatal("the walk never reached a cancellation audited after its send completed")
+	}
+	want := map[DeliveryState]int{StateDelivered: 3, StateFailed: 3, StateExhausted: 1, StateCanceled: 6}
 	for state, count := range want {
 		if terminal[state] != count {
 			t.Fatalf("terminal %s reached %d ways, want %d", state, terminal[state], count)
@@ -80,7 +97,13 @@ func walkTransitions(schedule Schedule, current walkState) []walkState {
 	next := make([]walkState, 0, len(walkEvents))
 	for _, event := range walkEvents {
 		if event.disable {
-			next = append(next, walkState{state: StateCanceled, attempts: current.attempts, audit: current.audit, enabled: false})
+			audit := current.audit
+			if event.inFlight {
+				audit++
+			}
+			next = append(next, walkState{
+				state: StateCanceled, attempts: current.attempts, audit: audit, enabled: false,
+			})
 			continue
 		}
 		attempt := schedule.resolve(dispatch, event.receipt, event.err, now, now)
