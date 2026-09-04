@@ -1,6 +1,11 @@
 schema: reaper.dev/v0alpha1
 capability: feature-flags
-artifact: factory-and-golden-specimen
+artifact: factory-and-golden-specimens
+specimens:
+  - name: feature-flags
+    path: .
+  - name: webhook-delivery
+    path: specimens/webhook-delivery
 
 factory:
   languages:

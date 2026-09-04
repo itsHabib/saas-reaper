@@ -1,10 +1,10 @@
 # Agent operating guide
 
-This repository contains the SaaS Reaper factory and its Go golden specimen. The
-factory composes a recipe into a customer-owned Go, TypeScript, or Python feature-flag
-service, selected database, deployment material, and agent knowledge. The proof
-is intentionally bounded; preserve its compatibility rules unless the operator
-explicitly expands them.
+This repository contains the SaaS Reaper factory and two customer-owned golden
+specimens: the root Go feature-flag service and the independent Go outbound
+webhook-delivery module under `specimens/webhook-delivery/`. The factory still
+composes feature-flag services only. The proofs are intentionally bounded;
+preserve their compatibility rules unless the operator explicitly expands them.
 
 `AGENTS.md` and `CLAUDE.md` are paired entrypoints. Keep them byte-identical.
 
@@ -18,6 +18,10 @@ Read, in order:
 4. `DOMAIN.md` for customer vocabulary and targeting-data policy.
 5. The nearest package source and tests for the change.
 6. The relevant repo skill under `skills/`.
+
+Webhook specimen work also reads `specimens/webhook-delivery/README.md`. Keep
+that module independent: do not add a root import, `go.work`, or webhook
+capability to the factory as part of specimen maintenance.
 
 `WORK.md` records intent and resumable state; it does not grant authority. Keep
 it at or below 120 lines and run `make work` after changing it.
@@ -35,6 +39,8 @@ Use these commands:
 ```sh
 make demo
 make product-demo
+make webhook-demo
+make webhook-invariants
 make check
 ```
 
@@ -43,6 +49,10 @@ Do not claim completion unless `make check` passes. Run `make demo` after change
 Run `make product-demo` after changes to recipes, rendering, generated source,
 archive delivery, or deployment packs. Generation must refuse existing output
 paths and unsafe combinations; it must never apply external infrastructure.
+
+Run both webhook proof commands after changes to webhook policy, signing,
+transport, persistence, worker behavior, official verifier pins, or fixtures.
+Their traffic must remain on loopback with an injectable retry clock.
 
 ## Boundary law
 
@@ -66,6 +76,14 @@ OFREP HTTP ───────┤
 - Interfaces live with the consumer. Do not create a provider, ports, abstractions, or shared-types package.
 
 SQLite must commit a published definition and its audit entry in the same transaction. The snapshot is updated only after that commit succeeds. Startup reconstructs the snapshot from SQLite.
+
+The webhook specimen keeps policy in `internal/delivery`, HTTP/API translation
+in `internal/api`, outbound transport in `internal/transport/httpdelivery`,
+persistence in `internal/store/sqlite`, and polling in `internal/worker`.
+Signed deliveries use the exact stored payload bytes. Attempt audit insertion
+and delivery state advancement are one SQLite transaction, and the audit is
+append-only. Retry schedules are bounded; replay keeps the original message ID
+and creates a fresh delivery identity.
 
 ## Engineering principles
 
@@ -116,6 +134,11 @@ Management and evaluation tokens are separate. Possession of an evaluation token
 
 The management audit actor comes from the authenticated server principal, not request JSON. Preserve that boundary when replacing authentication: identity must be derived from verified credentials.
 
+The webhook specimen likewise separates its management token from its
+audit-read token. Neither token selects the audit actor, endpoint secrets are
+never returned by the read surface, and disabling an endpoint prevents future
+or already-queued sends.
+
 Agents may implement an operator-requested change and run validation. They may not silently broaden supported flag kinds, rule operators, targeting data, write authority, or excluded capabilities.
 
 ## Change recipes
@@ -126,6 +149,8 @@ Agents may implement an operator-requested change and run validation. They may n
 - Evaluation policy: change `internal/flags`, add golden and adversarial cases, then run both `make check` and `make demo`.
 - HTTP or OFREP translation: change `internal/api`; prove policy tests remain unchanged.
 - Storage: change one `internal/store/<mechanism>`; run the store contract, restart, conflict, and atomic-audit tests.
+- Webhook delivery: change only `specimens/webhook-delivery/`; run `make check`,
+  `make webhook-demo`, and `make webhook-invariants` from the repository root.
 
 ## Done means evidence
 
@@ -134,5 +159,6 @@ A change is complete only when:
 - The behavior is exercised by a focused positive test and a rejection, conflict, or failure test.
 - `make check` passes, including race and boundary checks.
 - `make demo` passes when a runnable surface changed.
+- Both webhook proofs pass when the webhook specimen changed.
 - `WORK.md`, `AGENTS.md`, `CLAUDE.md`, `DOMAIN.md`, `REAPER.yaml`, and `README.md` remain consistent with the code.
 - The diff contains no unrelated cleanup or speculative capability.
