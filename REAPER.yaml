@@ -6,6 +6,8 @@ specimens:
     path: .
   - name: webhook-delivery
     path: specimens/webhook-delivery
+  - name: audit-ledger
+    path: specimens/audit-ledger
 
 factory:
   languages:

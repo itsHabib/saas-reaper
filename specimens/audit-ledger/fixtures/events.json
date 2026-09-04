@@ -1,0 +1,55 @@
+[
+  {
+    "tenant": "acme",
+    "id": "evt-0001",
+    "actor": "user:ada@acme.example",
+    "action": "member.invited",
+    "target": "member:grace@acme.example",
+    "occurredAt": "2026-08-30T09:15:00Z",
+    "metadata": {"role": "admin", "invitedVia": "console", "seats": 12}
+  },
+  {
+    "tenant": "acme",
+    "id": "evt-0002",
+    "actor": "user:grace@acme.example",
+    "action": "member.accepted",
+    "target": "member:grace@acme.example",
+    "occurredAt": "2026-08-30T09:20:30.250+02:00",
+    "metadata": null
+  },
+  {
+    "tenant": "acme",
+    "id": "evt-0003",
+    "actor": "service:billing",
+    "action": "plan.changed",
+    "target": "subscription:sub_9f3",
+    "occurredAt": "2026-08-30T10:00:00Z",
+    "metadata": {"zeta": {"nested": [1, -2, 0, true, false, null]}, "alpha": "first", "note": "quote \" backslash \\ tab \t line \n unicode ünïcödé 日本語 <&>"}
+  },
+  {
+    "tenant": "acme",
+    "id": "evt-0004",
+    "actor": "user:ada@acme.example",
+    "action": "api_key.created",
+    "target": "api_key:key_7c1",
+    "occurredAt": "2026-08-30T10:05:00Z",
+    "metadata": {"empty": {}, "list": [], "max": 9007199254740991, "min": -9007199254740991}
+  },
+  {
+    "tenant": "globex",
+    "id": "evt-0001",
+    "actor": "user:hank@globex.example",
+    "action": "document.exported",
+    "target": "document:doc_42",
+    "occurredAt": "2026-08-30T11:00:00Z",
+    "metadata": {"format": "pdf", "pages": 3}
+  },
+  {
+    "tenant": "acme",
+    "id": "evt-0005",
+    "actor": "user:ada@acme.example",
+    "action": "member.removed",
+    "target": "member:grace@acme.example",
+    "occurredAt": "2026-08-30T12:00:00Z"
+  }
+]

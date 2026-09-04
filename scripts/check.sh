@@ -26,3 +26,4 @@ examples/python/.venv/bin/python -m py_compile examples/python/client.py
 ./scripts/check-skill-projections.sh
 ./scripts/check-domain-adaptation.sh
 make -C specimens/webhook-delivery check
+make -C specimens/audit-ledger check
