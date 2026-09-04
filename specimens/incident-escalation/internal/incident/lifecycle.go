@@ -50,8 +50,8 @@ type Incident struct {
 	UpdatedAt  time.Time
 }
 
-// IncidentFilter narrows an incident listing without changing its ordering.
-type IncidentFilter struct {
+// Filter narrows an incident listing without changing its ordering.
+type Filter struct {
 	ServiceID string
 	State     State
 }

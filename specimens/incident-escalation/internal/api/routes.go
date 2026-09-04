@@ -15,7 +15,7 @@ import (
 // Reader exposes incidents, their journal, and the page audit to the read plane.
 type Reader interface {
 	Incident(context.Context, string) (incident.Incident, error)
-	Incidents(context.Context, incident.IncidentFilter, int) ([]incident.Incident, error)
+	Incidents(context.Context, incident.Filter, int) ([]incident.Incident, error)
 	Events(context.Context, string) ([]incident.Event, error)
 	Notifications(context.Context, string) ([]incident.Notification, error)
 	Attempts(context.Context, incident.AttemptFilter, int) ([]incident.Attempt, error)

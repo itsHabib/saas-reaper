@@ -413,28 +413,28 @@ func TestIncidentAndAttemptReadsAreFilteredAndBounded(t *testing.T) {
 	ctx := context.Background()
 	openIncident(t, store, "inc_1", "a", baseTime().Add(30*time.Second))
 	openIncident(t, store, "inc_2", "b", baseTime().Add(30*time.Second))
-	all, err := store.Incidents(ctx, incident.IncidentFilter{}, 100)
+	all, err := store.Incidents(ctx, incident.Filter{}, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(all) != 2 {
 		t.Fatalf("expected two incidents, got %d", len(all))
 	}
-	byService, err := store.Incidents(ctx, incident.IncidentFilter{ServiceID: "checkout", State: incident.StateTriggered}, 100)
+	byService, err := store.Incidents(ctx, incident.Filter{ServiceID: "checkout", State: incident.StateTriggered}, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(byService) != 2 {
 		t.Fatalf("filter must match, got %d", len(byService))
 	}
-	none, err := store.Incidents(ctx, incident.IncidentFilter{State: incident.StateResolved}, 100)
+	none, err := store.Incidents(ctx, incident.Filter{State: incident.StateResolved}, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(none) != 0 {
 		t.Fatalf("no incident is resolved, got %d", len(none))
 	}
-	if _, err := store.Incidents(ctx, incident.IncidentFilter{}, 0); !errors.Is(err, incident.ErrInvalid) {
+	if _, err := store.Incidents(ctx, incident.Filter{}, 0); !errors.Is(err, incident.ErrInvalid) {
 		t.Fatalf("a zero limit must be rejected, got %v", err)
 	}
 	if _, err := store.Attempts(ctx, incident.AttemptFilter{}, 1001); !errors.Is(err, incident.ErrInvalid) {

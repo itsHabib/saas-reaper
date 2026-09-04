@@ -152,6 +152,11 @@ start_container() {
   containers+=("$name")
 }
 
+# Containers that write into the shared volume run as the invoking user, so the
+# files they create (the sink's receipts, the SQLite authority) stay readable by
+# this harness. Without it a Linux runner cannot read a root-owned 0600 file.
+volume_user=$(id -u):$(id -g)
+
 echo '{}' > "$work_dir/secrets.json"
 chmod 0644 "$work_dir/secrets.json"
 
@@ -164,6 +169,7 @@ start_container "$mail_host" \
   "$mailpit_image"
 
 start_container "$sink_host" \
+  --user "$volume_user" \
   --volume "$work_dir:/work" \
   --env SINK_ADDR="0.0.0.0:$sink_port" \
   --env SINK_SECRETS=/work/secrets.json \
@@ -172,6 +178,7 @@ start_container "$sink_host" \
   "$runtime_image"
 
 start_container "$incidents_host" \
+  --user "$volume_user" \
   --volume "$work_dir:/work" \
   --env REAPER_INCIDENT_ADDR="0.0.0.0:$ingest_port" \
   --env REAPER_INCIDENT_DB=/work/incidents.db \

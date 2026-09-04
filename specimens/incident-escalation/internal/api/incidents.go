@@ -69,7 +69,7 @@ func (s *Server) listIncidents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	filter := incident.IncidentFilter{
+	filter := incident.Filter{
 		ServiceID: r.URL.Query().Get("serviceId"),
 		State:     incident.State(r.URL.Query().Get("state")),
 	}

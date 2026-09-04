@@ -47,7 +47,7 @@ func (s *Store) OpenIncident(ctx context.Context, serviceID, dedupKey string) (i
 }
 
 // Incidents lists newest first, optionally narrowed by service and state.
-func (s *Store) Incidents(ctx context.Context, filter incident.IncidentFilter, limit int) ([]incident.Incident, error) {
+func (s *Store) Incidents(ctx context.Context, filter incident.Filter, limit int) ([]incident.Incident, error) {
 	if limit < 1 || limit > 1000 {
 		return nil, fmt.Errorf("%w: incident limit must be between 1 and 1000", incident.ErrInvalid)
 	}
