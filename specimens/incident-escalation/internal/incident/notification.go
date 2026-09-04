@@ -7,7 +7,13 @@ import (
 	"time"
 )
 
-const maxRecordedErrorBytes = 1024
+const maxReasonBytes = 64
+
+// unclassifiedFailure is what the audit records when a transport returns an
+// error it did not classify. It is deliberately content-free: a raw transport
+// error can name a destination URL, a recipient, or relay reply text, and the
+// audit-read token is lower authority than the principal that configured them.
+const unclassifiedFailure = "notification_failed"
 
 // DefaultNotifyRetryDelays is the documented bounded schedule after the immediate attempt.
 var DefaultNotifyRetryDelays = []time.Duration{
@@ -15,6 +21,35 @@ var DefaultNotifyRetryDelays = []time.Duration{
 	30 * time.Second,
 	time.Minute,
 	5 * time.Minute,
+}
+
+// PageError is a transport failure reduced to audit-safe evidence.
+//
+// A transport chooses one short reason from its own fixed vocabulary; that
+// reason is the only thing policy persists and the only thing this error
+// renders. The underlying cause never becomes a string here, so it cannot
+// reach the audit surface or a log line by accident.
+type PageError struct {
+	Reason    string
+	Permanent bool
+}
+
+// NewPageError builds an audit-safe transport failure.
+func NewPageError(reason string, permanent bool) *PageError {
+	if reason == "" || len(reason) > maxReasonBytes {
+		reason = unclassifiedFailure
+	}
+	return &PageError{Reason: reason, Permanent: permanent}
+}
+
+// Error renders only the classification, never the cause.
+func (f *PageError) Error() string {
+	return f.Reason
+}
+
+// Is reports a permanent failure as ErrPermanent so retry policy stays sentinel-driven.
+func (f *PageError) Is(target error) bool {
+	return target == ErrPermanent && f.Permanent
 }
 
 // NotificationState is the durable position of one page.
@@ -131,7 +166,7 @@ func (s RetrySchedule) Resolve(notification Notification, sendErr error, attempt
 		ResponderID:    notification.ResponderID,
 		Channel:        notification.Channel,
 		Number:         number,
-		Error:          boundedError(sendErr),
+		Error:          auditableError(sendErr),
 		AttemptedAt:    attemptedAt.UTC(),
 	}
 	if sendErr == nil {
@@ -159,13 +194,15 @@ func (s RetrySchedule) Resolve(notification Notification, sendErr error, attempt
 	return attempt
 }
 
-func boundedError(err error) string {
+// auditableError reduces any transport error to a classification the audit-read
+// token may see. Anything a transport did not classify becomes a fixed token.
+func auditableError(err error) string {
 	if err == nil {
 		return ""
 	}
-	text := err.Error()
-	if len(text) <= maxRecordedErrorBytes {
-		return text
+	var failure *PageError
+	if errors.As(err, &failure) && failure.Reason != "" && len(failure.Reason) <= maxReasonBytes {
+		return failure.Reason
 	}
-	return text[:maxRecordedErrorBytes]
+	return unclassifiedFailure
 }

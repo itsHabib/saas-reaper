@@ -84,6 +84,8 @@ container runtime is required:
 - a resolve from ingest closes the incident and disarms its timer, and a later
   trigger opens a fresh identity;
 - the management token cannot read and the audit-read token cannot mutate;
+- a page to an unreachable destination is audited as a classification, and the
+  destination, its path, and its port appear nowhere in the audit;
 - the audit holds exactly one row per attempt, exposes no signing secret or
   destination, and every row written before a restart survives it unchanged.
 
@@ -128,6 +130,12 @@ object is invalid", "errors": ["..."]}`. Unknown fields are accepted and ignored
 because real senders add `client_url`, `images`, `links`, `payload.class`,
 `payload.component`, `payload.group`, and `payload.custom_details`. Only 2xx is
 success to Alertmanager, so every rejection is deliberate.
+
+Concurrent events for one dedup key serialize through the store, and a lost
+optimistic race is re-read and re-applied a bounded number of times. If the
+bound is exhausted the answer is `503`, never `409`: the upstream retrier
+retries 5xx and 429 and drops every other status, so reporting a conflict as `409`
+would silently discard a resolve and leave the incident escalating.
 
 `trigger` opens an incident unless one is already open for that service and
 dedup key, in which case it is journaled as a repeat. `acknowledge` and
@@ -223,6 +231,16 @@ page on the next tick nor blocks the pages behind it. A 2xx is delivery; 408,
 429, and 5xx retry; every other status and any unusable secret is permanent and
 terminal. An unconfigured SMTP relay fails permanently rather than retrying
 forever.
+
+A failed page is audited as a **classification, never as a transport error
+string**. A Go `url.Error` carries the full destination including any query
+credentials, and an SMTP relay echoes the rejected mailbox and its own hostname
+in reply text; the audit-read token is lower authority than the principal that
+configured those, so a transport returns one short token from its own fixed
+vocabulary (`connection_failed`, `timeout`, `http_status_502`,
+`smtp_status_550`, `relay_unconfigured`, …) and policy persists only that.
+Anything a transport failed to classify is recorded as `notification_failed`,
+so an unclassified error cannot leak by omission.
 
 ## Configuration
 

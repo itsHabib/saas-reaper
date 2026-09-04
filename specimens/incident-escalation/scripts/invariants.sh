@@ -10,6 +10,8 @@ cd "$specimen_dir"
 
 ingest_port=19505
 sink_port=19506
+# Deliberately closed: the redaction probe needs a page that cannot be delivered.
+dead_port=19507
 
 admin_token=invariants-management-token
 read_token=invariants-incident-read-token
@@ -337,6 +339,42 @@ echo "resolve invariant: ingest closes the incident and a later trigger opens a 
 [[ "$(status_code "$base_url/v1/incidents")" == 401 ]] ||
   fail "an unauthenticated caller could read incidents"
 echo "authority invariant: management and audit-read tokens cannot borrow each other's power"
+
+# ---------------------------------------------------------------------------
+# 6b. A page that cannot be delivered is audited with a classification only.
+#     The destination is configured by a higher authority than the audit reader.
+# ---------------------------------------------------------------------------
+management --request POST \
+  --data "{\"id\":\"mallory\",\"webhookUrl\":\"http://127.0.0.1:$dead_port/page/secret-path\"}" \
+  "$base_url/v1/responders" > /dev/null
+management --request POST \
+  --data '{"id":"redaction-ladder","name":"Redaction ladder","repeat":0,"levels":[{"timeout":"30s","responders":["mallory"]}]}' \
+  "$base_url/v1/escalation-policies" > /dev/null
+management --request POST \
+  --data '{"id":"redaction","name":"Redaction probe","escalationPolicy":"redaction-ladder"}' \
+  "$base_url/v1/services" > "$work_dir/redaction-service.json"
+redaction_key=$(jq -er '.routingKey' "$work_dir/redaction-service.json")
+curl --fail --silent --show-error \
+  --header 'Content-Type: application/json' \
+  --request POST \
+  --data "{\"routing_key\":\"$redaction_key\",\"event_action\":\"trigger\",\"dedup_key\":\"undeliverable\",\"payload\":{\"summary\":\"nobody home\",\"source\":\"probe\",\"severity\":\"error\"}}" \
+  "$base_url/v2/enqueue" > /dev/null
+redaction_incident=$(read_api "$base_url/v1/incidents?serviceId=redaction" | jq -er '.incidents[0].id')
+wait_for "the undeliverable page was never audited" \
+  bash -c "test \"\$(curl --fail --silent --header 'Authorization: Bearer $read_token' '$base_url/v1/attempts?incidentId=$redaction_incident' | jq -r '.attempts | length')\" -ge 1"
+read_api "$base_url/v1/attempts?incidentId=$redaction_incident" > "$work_dir/redaction-attempts.json"
+jq -e '
+  all(.attempts[];
+    (.outcome == "retrying" or .outcome == "exhausted")
+      and (.error | test("^[a-z0-9_]+$")))
+' "$work_dir/redaction-attempts.json" > /dev/null ||
+  fail "a failed page was audited with something other than a classification"
+for secret in 127.0.0.1 secret-path "$dead_port"; do
+  if grep -q "$secret" "$work_dir/redaction-attempts.json"; then
+    fail "the audit leaked $secret from a failed page"
+  fi
+done
+echo "redaction invariant: a failed page is audited as a classification, never as a destination"
 
 # ---------------------------------------------------------------------------
 # 7. The audit holds exactly one row per notification attempt, and never leaks

@@ -55,9 +55,11 @@ proves its compatibility against a real, unmodified Prometheus Alertmanager.
 
 - Verified: the new module's `go test -race ./...`, `golangci-lint`, `gofmt`, `shfmt`, `shellcheck`, and boundary checks pass.
 - Verified: `make incident-demo` passed locally against `prom/alertmanager:v0.28.1`, `axllent/mailpit:v1.30.1`, and `alpine:3.22` on linux/arm64.
-- Verified: `make incident-invariants` passed all nine probes, including escalation firing after a kill and reboot on the same database with the clock advanced.
+- Verified: `make incident-invariants` passed all ten probes, including escalation firing after a kill and reboot on the same database with the clock advanced.
 - Verified: an exhaustive state walk drives every signal from every reachable durable state and pins the reachable-state count at 13.
-- Pending: root `make check` and `make product-demo` on the exact pushed head, and the review round.
+- Reviewed: the first `@codex review` round found two P1s, both reproduced and fixed. A lost ingest race could surface as HTTP 409, which the upstream retrier drops, silently discarding a resolve; the re-apply is now bounded and a persistent conflict answers 503. Raw transport errors reached the audit carrying destination URLs and SMTP reply text; a transport now returns one classification from its own vocabulary and policy persists nothing else.
+- Verified: a new invariant probe pages an unreachable destination and proves the audit records a classification with no host, path, or port.
+- Pending: root `make check` on the exact pushed head and the second review round.
 
 - Reviewed: the Claude review's eight findings were each reproduced by a
   focused test and folded: queue-head starvation, 2xx-with-torn-body retry,
@@ -67,5 +69,5 @@ proves its compatibility against a real, unmodified Prometheus Alertmanager.
 
 ## Handoff
 
-- Last: the specimen, its two proofs, root wiring, manifest registration, and the paired agent guides are complete and green locally.
-- Next: run the root verification floor, push, open the pull request, request one `@codex review`, and stop at the reviewed CI-green head without Gate or merge.
+- Last: the first review round's two P1 findings are folded in with focused regression tests, a new redaction probe, and honest README wording.
+- Next: rerun every proof, push the exact head, reply per thread, request the final `@codex review`, and stop at the reviewed CI-green head without Gate or merge.

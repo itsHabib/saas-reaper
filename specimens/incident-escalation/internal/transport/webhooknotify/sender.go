@@ -6,10 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/itsHabib/saas-reaper/specimens/incident-escalation/internal/incident"
@@ -78,15 +78,15 @@ func (s *Sender) Notify(ctx context.Context, message incident.Message) error {
 		SentAt: message.SentAt.UTC(),
 	})
 	if err != nil {
-		return fmt.Errorf("%w: encode page: %w", incident.ErrPermanent, err)
+		return incident.NewPageError("page_encode_failed", true)
 	}
 	headers, err := sign(message.Responder.WebhookSecret, message.NotificationID, message.SentAt, payload)
 	if err != nil {
-		return fmt.Errorf("%w: %w", incident.ErrPermanent, err)
+		return incident.NewPageError("page_signing_failed", true)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, message.Responder.WebhookURL, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("%w: build page request: %w", incident.ErrPermanent, err)
+		return incident.NewPageError("page_request_invalid", true)
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("User-Agent", "reaper-incidents/1.0")
@@ -95,7 +95,8 @@ func (s *Sender) Notify(ctx context.Context, message incident.Message) error {
 	request.Header.Set(headerWebhookSignature, headers.signature)
 	response, err := s.client.Do(request)
 	if err != nil {
-		return fmt.Errorf("post page: %w", err)
+		// A transport error names the destination, so only its class is audited.
+		return incident.NewPageError(transportReason(err), false)
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxDrainBytes))
 	if err := response.Body.Close(); err != nil {
@@ -108,8 +109,21 @@ func classify(status int) error {
 	if status >= 200 && status <= 299 {
 		return nil
 	}
+	reason := "http_status_" + strconv.Itoa(status)
 	if status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500 {
-		return fmt.Errorf("page rejected with status %d", status)
+		return incident.NewPageError(reason, false)
 	}
-	return fmt.Errorf("%w: page rejected with status %d", incident.ErrPermanent, status)
+	return incident.NewPageError(reason, true)
+}
+
+// transportReason classifies a failed request without naming its destination.
+func transportReason(err error) string {
+	var timeout interface{ Timeout() bool }
+	if errors.As(err, &timeout) && timeout.Timeout() {
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	return "connection_failed"
 }

@@ -6,6 +6,12 @@ import (
 	"fmt"
 )
 
+// ingestAttempts bounds how many times one event re-reads and re-applies after
+// losing an optimistic race. Concurrent events for one dedup key serialize
+// through the store, so a small bound is enough for the fan-in a sender
+// produces; exhausting it is reported as a conflict the caller should retry.
+const ingestAttempts = 8
+
 // ServiceActor is the audit principal derived from a verified routing key.
 func ServiceActor(service Service) string {
 	return "service:" + service.ID
@@ -16,7 +22,8 @@ func ServiceActor(service Service) string {
 // Trigger opens an incident unless one is already open for the dedup key, in
 // which case it is journaled as a duplicate. Acknowledge and resolve act on the
 // open incident and are accepted silently when none exists, matching the
-// upstream contract. A uniqueness or revision race is retried once.
+// upstream contract. A uniqueness or revision race is re-read and re-applied a
+// bounded number of times, because dropping the event would lose a resolve.
 func (d *Desk) Ingest(ctx context.Context, alert Alert) (Receipt, error) {
 	if err := validateAlert(alert); err != nil {
 		return Receipt{}, err
@@ -29,14 +36,20 @@ func (d *Desk) Ingest(ctx context.Context, alert Alert) (Receipt, error) {
 		return Receipt{}, err
 	}
 	if alert.DedupKey == "" {
-		alert.DedupKey, err = d.generate("")
-		if err != nil {
-			return Receipt{}, err
+		generated, generateErr := d.generate("")
+		if generateErr != nil {
+			return Receipt{}, generateErr
 		}
+		alert.DedupKey = generated
 	}
-	err = d.apply(ctx, service, alert)
-	if errors.Is(err, ErrConflict) {
+	// A lost race means another event for this dedup key landed first, so the
+	// incident must be re-read and the signal re-applied. Dropping the event
+	// here would silently lose an acknowledge or a resolve.
+	for range ingestAttempts {
 		err = d.apply(ctx, service, alert)
+		if !errors.Is(err, ErrConflict) {
+			break
+		}
 	}
 	if err != nil {
 		return Receipt{}, err

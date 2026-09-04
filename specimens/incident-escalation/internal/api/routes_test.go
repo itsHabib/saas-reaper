@@ -357,6 +357,35 @@ func TestServerRejectsAuthorityCollapse(t *testing.T) {
 	}
 }
 
+// Alertmanager's retrier retries 5xx and 429 and drops every other status, so a
+// conflict that survived the desk's bounded re-apply must not surface as 409.
+func TestPersistentIngestConflictIsRetryableForTheSender(t *testing.T) {
+	handler, _, _ := newHarness(t)
+	routingKey := seedCatalog(t, handler)
+	trigger := `{"routing_key":"` + routingKey + `","event_action":"trigger","dedup_key":"k","payload":{"summary":"s","source":"p","severity":"error"}}`
+	if got := do(t, handler, http.MethodPost, "/v2/enqueue", "", trigger).Code; got != http.StatusAccepted {
+		t.Fatalf("ingest: %d", got)
+	}
+	recorder := httptest.NewRecorder()
+	deferEvent(recorder, "the incident changed concurrently; retry this event")
+	if recorder.Code/100 != 5 {
+		t.Fatalf("a deferred event must answer a retryable status, got %d", recorder.Code)
+	}
+	if recorder.Code == http.StatusConflict {
+		t.Fatal("409 is dropped by the upstream retrier")
+	}
+	var body map[string]any
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["status"] != "error" || body["message"] != "Event not processed" {
+		t.Fatalf("unexpected deferral body %#v", body)
+	}
+	if _, ok := body["errors"].([]any); !ok {
+		t.Fatalf("the error list is part of the contract: %#v", body)
+	}
+}
+
 func TestHealthNeedsNoCredential(t *testing.T) {
 	handler, _, _ := newHarness(t)
 	recorder := do(t, handler, http.MethodGet, "/healthz", "", "")

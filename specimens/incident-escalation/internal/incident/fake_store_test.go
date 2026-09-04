@@ -13,21 +13,22 @@ import (
 
 // memoryStore is a deterministic in-memory authority for policy tests.
 type memoryStore struct {
-	mu            sync.Mutex
-	responders    map[string]Responder
-	schedules     map[string]oncall.Schedule
-	policies      map[string]EscalationPolicy
-	services      map[string]Service
-	incidents     map[string]Incident
-	events        []Event
-	notifications map[string]Notification
-	attempts      []Attempt
-	claims        int
-	failClaim     error
-	failRecord    error
-	failCreate    int
-	failDue       error
-	raceAfterDue  string
+	mu             sync.Mutex
+	responders     map[string]Responder
+	schedules      map[string]oncall.Schedule
+	policies       map[string]EscalationPolicy
+	services       map[string]Service
+	incidents      map[string]Incident
+	events         []Event
+	notifications  map[string]Notification
+	attempts       []Attempt
+	claims         int
+	failClaim      error
+	failRecord     error
+	failCreate     int
+	failTransition int
+	failDue        error
+	raceAfterDue   string
 }
 
 func newMemoryStore() *memoryStore {
@@ -151,6 +152,10 @@ func (m *memoryStore) CreateIncident(_ context.Context, opened Incident, event E
 func (m *memoryStore) Transition(_ context.Context, next Incident, expected int64, event Event, notifications []Notification) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failTransition > 0 {
+		m.failTransition--
+		return fmt.Errorf("%w: simulated lost race", ErrConflict)
+	}
 	current, ok := m.incidents[next.ID]
 	if !ok || current.Revision != expected {
 		return fmt.Errorf("%w: revision %d", ErrConflict, expected)

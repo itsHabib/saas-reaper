@@ -40,6 +40,18 @@ type enqueueRejected struct {
 	Errors  []string `json:"errors"`
 }
 
+// deferEvent answers a sender that must try the same event again. Alertmanager's
+// retrier retries 5xx and 429 and drops every other status, so a conflict that
+// outlived its bounded re-apply must never be reported as 409: that would
+// silently discard a resolve and leave the incident escalating.
+func deferEvent(w http.ResponseWriter, reason string) {
+	writeJSON(w, http.StatusServiceUnavailable, enqueueRejected{
+		Status:  "error",
+		Message: "Event not processed",
+		Errors:  []string{reason},
+	})
+}
+
 func (s *Server) enqueue(w http.ResponseWriter, r *http.Request) {
 	if !isJSON(r) {
 		rejectEvent(w, "Content-Type must be application/json")
@@ -65,6 +77,10 @@ func (s *Server) enqueue(w http.ResponseWriter, r *http.Request) {
 	receipt, err := s.desk.Ingest(r.Context(), alert)
 	if errors.Is(err, incident.ErrInvalid) {
 		rejectEvent(w, err.Error())
+		return
+	}
+	if errors.Is(err, incident.ErrConflict) {
+		deferEvent(w, "the incident changed concurrently; retry this event")
 		return
 	}
 	if err != nil {

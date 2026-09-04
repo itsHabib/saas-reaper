@@ -214,6 +214,57 @@ func TestHeaderInjectionIsRefused(t *testing.T) {
 	}
 }
 
+// A relay echoes the rejected mailbox and its own hostname in reply text, and
+// the audit reader may see neither.
+func TestRelayReplyTextNeverEscapesTheTransport(t *testing.T) {
+	relay := &sink{reject: true}
+	address := relay.start(t)
+	sender, err := New(address, "pager@reaper.invalid", 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = sender.Notify(context.Background(), pageMessage())
+	if err == nil {
+		t.Fatal("a rejected recipient must fail")
+	}
+	if err.Error() != "smtp_status_550" {
+		t.Fatalf("the status code is the evidence, got %q", err.Error())
+	}
+	var failure *incident.PageError
+	if !errors.As(err, &failure) {
+		t.Fatal("relay failures must be classified for the audit")
+	}
+	for _, secret := range []string{"ada@example.test", "no such mailbox", "sink", address} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("the error leaked %q: %q", secret, err.Error())
+		}
+	}
+
+	unreachable, err := New("127.0.0.1:1", "pager@reaper.invalid", 200*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialErr := unreachable.Notify(context.Background(), pageMessage())
+	if dialErr == nil || dialErr.Error() != "relay_unreachable" {
+		t.Fatalf("a dial failure must be classified, got %v", dialErr)
+	}
+	if strings.Contains(dialErr.Error(), "127.0.0.1") {
+		t.Fatalf("the error leaked the relay address: %q", dialErr.Error())
+	}
+
+	unconfigured, err := New("", "pager@reaper.invalid", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing := unconfigured.Notify(context.Background(), pageMessage())
+	if missing == nil || missing.Error() != "relay_unconfigured" {
+		t.Fatalf("an unconfigured relay must be classified, got %v", missing)
+	}
+	if !errors.Is(missing, incident.ErrPermanent) {
+		t.Fatal("an unconfigured relay must stay permanent")
+	}
+}
+
 func TestSenderConstructionRejectsBadConfiguration(t *testing.T) {
 	cases := map[string]func() (*Sender, error){
 		"zero timeout":  func() (*Sender, error) { return New("127.0.0.1:25", "a@b.test", 0) },

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net"
 	"net/smtp"
+	"net/textproto"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,29 +45,32 @@ func New(address, from string, timeout time.Duration) (*Sender, error) {
 // Notify delivers one page to the responder's address over an unauthenticated relay.
 func (s *Sender) Notify(ctx context.Context, message incident.Message) error {
 	if s.address == "" {
-		return fmt.Errorf("%w: SMTP relay is not configured", incident.ErrPermanent)
+		return incident.NewPageError("relay_unconfigured", true)
 	}
 	to := message.Responder.Email
 	if strings.ContainsAny(to, "\r\n") {
-		return fmt.Errorf("%w: responder address contains line breaks", incident.ErrPermanent)
+		return incident.NewPageError("recipient_invalid", true)
 	}
 	body := render(message, s.from, to)
 	dialer := net.Dialer{Timeout: s.timeout}
 	connection, err := dialer.DialContext(ctx, "tcp", s.address)
 	if err != nil {
-		return fmt.Errorf("dial SMTP relay: %w", err)
+		// A dial error names the relay, so only its class is audited.
+		return incident.NewPageError(relayReason(err, "relay_unreachable"), false)
 	}
 	deadline := time.Now().Add(s.timeout)
 	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
 		deadline = ctxDeadline
 	}
 	if err := connection.SetDeadline(deadline); err != nil {
-		return errors.Join(fmt.Errorf("bound SMTP session: %w", err), connection.Close())
+		_ = connection.Close()
+		return incident.NewPageError("relay_session_failed", false)
 	}
 	host, _, _ := net.SplitHostPort(s.address)
 	client, err := smtp.NewClient(connection, host)
 	if err != nil {
-		return errors.Join(fmt.Errorf("open SMTP session: %w", err), connection.Close())
+		_ = connection.Close()
+		return incident.NewPageError(relayReason(err, "relay_session_failed"), false)
 	}
 	sendErr := send(client, s.from, to, body)
 	if sendErr != nil {
@@ -74,24 +79,44 @@ func (s *Sender) Notify(ctx context.Context, message incident.Message) error {
 	return nil
 }
 
+// send returns audit-safe classifications only: a relay echoes the rejected
+// mailbox and its own hostname in reply text, which the audit must never carry.
 func send(client *smtp.Client, from, to string, body []byte) error {
 	if err := client.Mail(from); err != nil {
-		return fmt.Errorf("SMTP MAIL FROM: %w", err)
+		return incident.NewPageError(relayReason(err, "relay_rejected_sender"), false)
 	}
 	if err := client.Rcpt(to); err != nil {
-		return fmt.Errorf("SMTP RCPT TO: %w", err)
+		return incident.NewPageError(relayReason(err, "relay_rejected_recipient"), false)
 	}
 	writer, err := client.Data()
 	if err != nil {
-		return fmt.Errorf("SMTP DATA: %w", err)
+		return incident.NewPageError(relayReason(err, "relay_rejected_data"), false)
 	}
 	if _, err := writer.Write(body); err != nil {
-		return errors.Join(fmt.Errorf("SMTP body: %w", err), writer.Close())
+		_ = writer.Close()
+		return incident.NewPageError("relay_write_failed", false)
 	}
 	if err := writer.Close(); err != nil {
-		return fmt.Errorf("SMTP end of data: %w", err)
+		return incident.NewPageError(relayReason(err, "relay_rejected_body"), false)
 	}
-	return client.Quit()
+	if err := client.Quit(); err != nil {
+		return incident.NewPageError(relayReason(err, "relay_close_failed"), false)
+	}
+	return nil
+}
+
+// relayReason keeps the SMTP status code, which is safe evidence, and discards
+// the reply text, which is not.
+func relayReason(err error, fallback string) string {
+	var reply *textproto.Error
+	if errors.As(err, &reply) {
+		return "smtp_status_" + strconv.Itoa(reply.Code)
+	}
+	var timeout interface{ Timeout() bool }
+	if errors.As(err, &timeout) && timeout.Timeout() {
+		return "timeout"
+	}
+	return fallback
 }
 
 func render(message incident.Message, from, to string) []byte {

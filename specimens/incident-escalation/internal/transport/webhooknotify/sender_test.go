@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -184,6 +185,56 @@ func TestRedirectsAreNotFollowed(t *testing.T) {
 	}
 	if reached {
 		t.Fatal("the sender must not follow a redirect")
+	}
+}
+
+// The destination is configured by a higher authority than the audit reader, so
+// no error this transport returns may name it.
+func TestTransportErrorsNameNoDestination(t *testing.T) {
+	sender, err := New(200 * time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer rejecting.Close()
+	unreachable := "http://127.0.0.1:1/page/secret-path?token=super-secret"
+
+	cases := map[string]struct {
+		url  string
+		want string
+	}{
+		"refused connection": {url: unreachable, want: "connection_failed"},
+		"rejected status":    {url: rejecting.URL, want: "http_status_502"},
+	}
+	for name, testCase := range cases {
+		err := sender.Notify(context.Background(), testMessage(testCase.url))
+		if err == nil {
+			t.Fatalf("%s: expected a failure", name)
+		}
+		if err.Error() != testCase.want {
+			t.Fatalf("%s: got %q want %q", name, err.Error(), testCase.want)
+		}
+		var failure *incident.PageError
+		if !errors.As(err, &failure) {
+			t.Fatalf("%s: transport failures must be classified for the audit", name)
+		}
+		for _, secret := range []string{"127.0.0.1", "secret-path", "super-secret", rejecting.URL} {
+			if strings.Contains(err.Error(), secret) {
+				t.Fatalf("%s: the error leaked %q: %q", name, secret, err.Error())
+			}
+		}
+	}
+
+	badSecret := testMessage(unreachable)
+	badSecret.Responder.WebhookSecret = "not-a-standard-webhooks-secret"
+	signErr := sender.Notify(context.Background(), badSecret)
+	if signErr == nil || signErr.Error() != "page_signing_failed" {
+		t.Fatalf("a signing failure must be classified, got %v", signErr)
+	}
+	if !errors.Is(signErr, incident.ErrPermanent) {
+		t.Fatal("a signing failure must stay permanent")
 	}
 }
 
