@@ -1,71 +1,63 @@
 <!-- reaper-work:v1 -->
-# Work: Customer-owned webhook delivery specimen
+# Work: Customer-owned incident escalation specimen
 
-Work-ID: webhook-delivery-specimen
+Work-ID: incident-escalation-specimen
 Status: active
-Subject: git:6517797efde09c323f53c165899caf3bd15c5fbc
+Subject: git:9334a0bbc99df69dc19abd834249ee89c23cb57e
 Stop-at: reviewed-change
 
 ## Outcome
 
-An in-repository, customer-owned Go webhook-delivery specimen registers and
-disables endpoints, publishes exact payload bytes, signs Standard Webhooks
-deliveries, retries failures on a bounded schedule, replays messages, and
-persists an append-only attempt audit that official Go, JavaScript, and Python
-verifiers accept through local runnable proofs.
+An in-repository, customer-owned Go incident-escalation specimen accepts
+PagerDuty Events API v2 events, deduplicates them into incidents, climbs a
+declared escalation ladder on a durable timer that survives restarts, resolves
+on-call responders from declared rotations and overrides, pages them over signed
+webhooks and SMTP with a bounded retry schedule and append-only audit, and
+proves its compatibility against a real, unmodified Prometheus Alertmanager.
 
 ## Preserve
 
-- The feature-flags golden specimen and factory output stay behaviorally unchanged.
+- The feature-flags golden specimen, the webhook-delivery specimen, and factory output stay behaviorally unchanged.
 - `internal/factory/validate.go` continues to reject every capability other than `feature-flags`.
-- Policy, HTTP transport, persistence, and worker mechanisms remain one-way layers with consumer-owned interfaces.
-- Management and audit-read credentials stay separate; the configured principal supplies the audit actor.
-- Demo and CI delivery traffic stays on loopback and no external infrastructure is provisioned.
+- Policy, on-call resolution, HTTP transport, persistence, and worker mechanisms remain one-way layers with consumer-owned interfaces.
+- Management and incident-read credentials stay separate; the audit actor comes from the server principal, the routing key, or the timer, never request JSON.
+- Proof traffic stays on the local machine: invariants on loopback, the demo on one private container network with no published port.
 
 ## Change
 
-- `specimens/webhook-delivery/`: add the independent Go module, official verifier fixtures, local demo, invariant probes, and scoped checks.
-- `scripts/setup.sh`: install the nested specimen's pinned dependencies.
-- `scripts/check.sh`: include the nested module in the root verification floor.
-- `scripts/check-boundaries.sh`: exclude installed nested dependencies while continuing to scan authored specimen source.
-- `.gitignore`: keep nested verifier installations and bytecode out of the repository proof.
-- `Makefile`: expose webhook demo, invariant, and complete specimen proof targets.
-- `.github/workflows/ci.yml`: run the local-only webhook interoperability and invariant proof.
-- `README.md`: describe the second specimen, selection principle, runnable proof, and factory boundary honestly.
-- `REAPER.yaml`: declare both golden specimens in the artifact manifest.
-- `AGENTS.md`: extend the paired law with the webhook specimen's layers, proofs, and authority rules.
-- `CLAUDE.md`: keep the byte-identical projection of the extended law.
+- `specimens/incident-escalation/`: add the independent Go module, on-call schedule format, durable escalation timer, notification transports, container-native Alertmanager demo, invariant probes, module lint config, and scoped checks.
+- `scripts/setup.sh`: install the new specimen's pinned dependencies.
+- `scripts/check.sh`: include the new module in the root verification floor.
+- `Makefile`: expose incident demo, invariant, and complete specimen proof targets.
+- `.gitignore`: keep the demo's container scratch directory out of the repository proof.
+- `.github/workflows/ci.yml`: run the Docker-backed compatibility proof and the loopback invariants in a dedicated job.
+- `README.md`: describe the third specimen, its Alertmanager proof, and its documented gaps.
+- `REAPER.yaml`: register all three specimens and their proofs instead of claiming one.
+- `AGENTS.md`: record the third specimen's boundary law, authority split, proof commands, and change recipe.
+- `CLAUDE.md`: keep the paired agent guide byte-identical with `AGENTS.md`.
 - `WORK.md`: bind this exact task, proof, and stop boundary.
 
 ## Prove
 
-- Green: `make check` passes with nested Go race tests, lint, shell, TypeScript, Python, and boundary checks.
-- Green: `make webhook-demo` shows all three official verifier libraries accept real deliveries and reject a tampered signature.
-- Green: `make webhook-invariants` proves retry-after-failure, disabled silence, replay identity, restart durability, and token separation.
-- Red: a changed payload or signature is rejected, failed sends are audited before retry, and a forced audit insert failure cannot advance delivery state.
+- Green: `make check` passes with the new module's race tests, strict lint, shell format, shellcheck, and boundary checks.
+- Green: `make incident-demo` shows an unmodified Alertmanager opening, deduplicating, and resolving an incident, with the official Standard Webhooks verifier accepting the signed page and a real SMTP server receiving the email.
+- Green: `make incident-invariants` proves dedup, schedule overrides, timed escalation, timer survival across a restart, acknowledge, resolve, token separation, and one audit row per attempt.
+- Red: a tampered signature is rejected by the official verifier, a duplicate dedup key opens no second incident, an acknowledged incident never escalates, each token is refused the other's route, and a failed audit write neither replays a page nor starves the queue.
 
 ## Stop
 
-- Stop if the nested module requires root import coupling, a `go.work`, or factory capability changes.
-- Stop before any non-loopback demo dependency, external infrastructure, Gate invocation, or merge.
+- Stop if the new module requires root import coupling, a `go.work`, or factory capability changes.
+- Stop before adding voice, SMS, mobile, UI, or notification-routing capability to this specimen.
+- Stop before any proof dependency that leaves the machine, external infrastructure, Gate invocation, or merge.
 - Stop after two review-fix rounds even if a broader architectural finding remains.
 
 ## Evidence
 
-- Verified: root `make check`, `make demo`, and `make product-demo` pass.
-- Verified: nested `make check`, `make demo`, and `make invariants` pass; all
-  three official verifier libraries accept literal fixture bytes and reject
-  same-length signature tampering.
-- Verified: race tests cover both disable/send orderings, replay attribution
-  across a principal change, owner-only database mode, atomic audit rollback,
-  and destination-credential redaction from the read authority.
-- Reviewed: five adversarial findings were reproduced and folded before PR.
-- Reviewed: first `@codex review` round found response-start retry timing and
-  graceful-shutdown audit loss; both were reproduced and fixed with focused
-  race tests before the second exact-head review.
-- Reviewed: second `@codex review` round found stale paired agent guides and a
-  whitespace-only actor accepted at service construction; both were reproduced
-  and folded in the second and final allowed fix round.
+- Verified: the new module's `go test -race ./...`, `golangci-lint`, `gofmt`, `shfmt`, `shellcheck`, and boundary checks pass.
+- Verified: `make incident-demo` passed locally against `prom/alertmanager:v0.28.1`, `axllent/mailpit:v1.30.1`, and `alpine:3.22` on linux/arm64.
+- Verified: `make incident-invariants` passed all nine probes, including escalation firing after a kill and reboot on the same database with the clock advanced.
+- Verified: an exhaustive state walk drives every signal from every reachable durable state and pins the reachable-state count at 13.
+- Pending: root `make check` and `make product-demo` on the exact pushed head, and the review round.
 
 - Reviewed: the Claude review's eight findings were each reproduced by a
   focused test and folded: queue-head starvation, 2xx-with-torn-body retry,
@@ -75,7 +67,5 @@ verifiers accept through local runnable proofs.
 
 ## Handoff
 
-- Last: the Claude review round removed the attempt coordinator in favour of
-  the store transaction, parked unauditable rows, and added the `failed` state.
-- Next: rerun every proof, push the exact head, request one `@codex review`,
-  and stop at the reviewed CI-green head without Gate or merge.
+- Last: the specimen, its two proofs, root wiring, manifest registration, and the paired agent guides are complete and green locally.
+- Next: run the root verification floor, push, open the pull request, request one `@codex review`, and stop at the reviewed CI-green head without Gate or merge.

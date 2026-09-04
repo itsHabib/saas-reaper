@@ -1,0 +1,15 @@
+{
+  "id": "payments-ladder",
+  "name": "Payments escalation ladder",
+  "repeat": 1,
+  "levels": [
+    {
+      "timeout": "30s",
+      "schedules": ["payments-primary"]
+    },
+    {
+      "timeout": "60s",
+      "responders": ["linus"]
+    }
+  ]
+}

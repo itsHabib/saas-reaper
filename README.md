@@ -103,6 +103,30 @@ make webhook-invariants
 make webhook-proof
 ```
 
+The third specimen lives in
+[`specimens/incident-escalation`](specimens/incident-escalation). Incident
+paging is sold per seat as though the hard part were the pager, when the
+essential product is a durable escalation timer, an on-call rotation
+calculation, a bounded retry loop, and an append-only journal. Its
+compatibility claim is the strongest one in the repository so far: the demo
+starts a real, unmodified Prometheus Alertmanager container whose ordinary
+`pagerduty_configs` receiver points at the specimen's PagerDuty Events API v2
+ingest endpoint, then proves that Alertmanager opens one incident with its own
+hashed dedup key, that a repeat notification opens no second incident, that the
+responder's signed page is accepted by the official Standard Webhooks Go
+verifier and rejected after one tampered character, that a real SMTP server
+receives the email page, and that Alertmanager's resolve closes the same
+incident. Its escalation timer is a durable column rather than an in-memory
+timer, so a probe kills the service and reboots it on the same database with the
+clock advanced and the escalation still fires. Voice, SMS, a mobile app, a UI,
+and notification routing are documented gaps, and the factory still generates
+feature-flag services only.
+
+```sh
+make incident-demo        # needs a Docker daemon
+make incident-invariants  # loopback only, no container runtime
+```
+
 ## Frontier work contract
 
 Every generated repository includes a tailored `WORK.md`: a compact active-work

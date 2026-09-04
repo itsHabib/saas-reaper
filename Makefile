@@ -1,4 +1,4 @@
-.PHONY: setup work demo product-demo webhook-demo webhook-invariants webhook-proof check verify
+.PHONY: setup work demo product-demo webhook-demo webhook-invariants webhook-proof incident-demo incident-invariants incident-proof check verify
 
 setup:
 	./scripts/setup.sh
@@ -20,7 +20,15 @@ webhook-invariants: setup
 
 webhook-proof: check webhook-demo webhook-invariants
 
+incident-demo:
+	$(MAKE) -C specimens/incident-escalation demo
+
+incident-invariants:
+	$(MAKE) -C specimens/incident-escalation invariants
+
+incident-proof: check incident-demo incident-invariants
+
 check: setup
 	./scripts/check.sh
 
-verify: product-demo webhook-proof
+verify: product-demo webhook-proof incident-demo incident-invariants
