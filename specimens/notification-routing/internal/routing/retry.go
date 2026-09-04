@@ -43,9 +43,13 @@ func (s Schedule) MaxAttempts() int {
 }
 
 // Receipt carries transport evidence into retry policy.
+//
+// It deliberately carries only the protocol's result code. Remote-controlled text — an SMTP
+// reply message, a webhook response body — never crosses this seam, so redaction has exactly
+// one boundary: the error a transport returns, which classify redacts before the dispatcher
+// persists it. A future consumer of this struct cannot reintroduce the leak by reading a field.
 type Receipt struct {
-	Code   int
-	Detail string
+	Code int
 }
 
 // AttemptOutcome is the durable interpretation of one transport call.

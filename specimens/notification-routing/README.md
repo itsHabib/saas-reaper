@@ -89,8 +89,10 @@ type Transport interface {
 
 An `Envelope` is already rendered and already addressed — a transport never
 sees a template, a payload, a recipient's other channels, or the retry
-schedule. A `Receipt` carries the protocol's own result code so the audit can
-record it. Classification is the transport's one policy-shaped duty, and it is
+schedule. A `Receipt` carries the protocol's own result code and nothing else:
+remote-controlled text, an SMTP reply message or a webhook response body, never
+crosses this seam, so redaction has exactly one boundary and a later consumer
+cannot reintroduce a leak by reading a field. Classification is the transport's one policy-shaped duty, and it is
 expressed in the error rather than in a status enum: an error wrapping
 `routing.ErrPermanent` ends retries, and any other error is transient. That
 keeps the SMTP reply-code rules in the SMTP package and the HTTP status rules

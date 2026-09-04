@@ -61,9 +61,11 @@ func (s *Sender) Deliver(ctx context.Context, envelope routing.Envelope) (routin
 	if err != nil {
 		return routing.Receipt{}, redact(err)
 	}
-	detail, _ := io.ReadAll(io.LimitReader(response.Body, responseDrainBytes))
+	// The body is drained so the connection can be reused, and discarded: it is
+	// remote-controlled text and nothing that crosses this seam may carry it.
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, responseDrainBytes))
 	_ = response.Body.Close()
-	receipt := routing.Receipt{Code: response.StatusCode, Detail: string(bytes.TrimSpace(detail))}
+	receipt := routing.Receipt{Code: response.StatusCode}
 	return receipt, classify(receipt)
 }
 

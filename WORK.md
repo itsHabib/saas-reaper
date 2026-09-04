@@ -53,11 +53,12 @@ and a Slack-shape incoming-webhook receiver.
 ## Evidence
 
 - Verified: nested `make check`, `make demo`, and `make invariants` pass; the real SMTP server received the rendered notification and the Slack-shape receiver accepted the documented payload.
-- Verified: the exhaustive delivery state walk pins 13 reachable durable states and reaches every terminal state.
+- Verified: the exhaustive delivery state walk pins 16 reachable durable states, covers both cancellation shapes, and reaches every terminal state.
 - Verified: race tests cover the dispatcher continuing past a poisoned audit write, an unconfigured transport kind failing permanently, shutdown auditing, atomic audit rollback, and address redaction from the read authority.
 - Reviewed: the eight defects recorded in the webhook specimen's review were designed against rather than repeated.
+- Reviewed: two review rounds found six issues; all were reproduced and fixed with focused regression tests, and the one residue that cannot be closed without a lock across network I/O is documented instead.
 
 ## Handoff
 
-- Last: the specimen, its two proofs, and the root wiring are complete and green on this working tree.
-- Next: run the full verification bar on the final tree, push, open the pull request, and stop at the reviewed CI-green head without Gate or merge.
+- Last: the second and final allowed fix round removed remote-controlled text from the transport receipt and realigned this record with the widened state walk.
+- Next: confirm the reviewed head is CI-green and stop there without Gate or merge.

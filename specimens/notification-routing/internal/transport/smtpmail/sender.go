@@ -76,7 +76,7 @@ func (s *Sender) Deliver(ctx context.Context, envelope routing.Envelope) (routin
 		receipt := receiptFor(err)
 		return receipt, classify(err)
 	}
-	return routing.Receipt{Code: acceptedReplyCode, Detail: "accepted"}, nil
+	return routing.Receipt{Code: acceptedReplyCode}, nil
 }
 
 func (s *Sender) dial(ctx context.Context) (*smtp.Client, error) {
@@ -164,7 +164,7 @@ func (s *Sender) message(envelope routing.Envelope) []byte {
 func receiptFor(err error) routing.Receipt {
 	var reply *textproto.Error
 	if errors.As(err, &reply) {
-		return routing.Receipt{Code: reply.Code, Detail: reply.Msg}
+		return routing.Receipt{Code: reply.Code}
 	}
 	return routing.Receipt{}
 }

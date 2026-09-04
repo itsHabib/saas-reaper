@@ -170,29 +170,34 @@ func TestDeliverClassifiesReplies(t *testing.T) {
 func TestDeliverKeepsReplyCodeButNeverReplyText(t *testing.T) {
 	for _, code := range []int{451, 550} {
 		t.Run(strconv.Itoa(code), func(t *testing.T) {
-			backend := &fixtureBackend{rcptCode: code}
-			sender := newSender(t, startFixture(t, backend))
-			receipt, err := sender.Deliver(context.Background(), testEnvelope())
-			if err == nil {
-				t.Fatal("delivery unexpectedly succeeded")
-			}
-			if receipt.Code != code {
-				t.Fatalf("receipt code = %d, want %d", receipt.Code, code)
-			}
-			persisted := err.Error()
-			for _, secret := range []string{"acme.example", "relay-7.mail.internal", "recipient rejected"} {
-				if strings.Contains(persisted, secret) {
-					t.Fatalf("persisted error %q leaked %q", persisted, secret)
-				}
-			}
-			if !strings.Contains(persisted, strconv.Itoa(code)) {
-				t.Fatalf("persisted error %q dropped the reply code", persisted)
-			}
-			var reply *textproto.Error
-			if !errors.As(err, &reply) {
-				t.Fatalf("error lost its reply cause: %v", err)
-			}
+			assertReplyTextNeverEscapes(t, code)
 		})
+	}
+}
+
+func assertReplyTextNeverEscapes(t *testing.T, code int) {
+	t.Helper()
+	sender := newSender(t, startFixture(t, &fixtureBackend{rcptCode: code}))
+	receipt, err := sender.Deliver(context.Background(), testEnvelope())
+	if err == nil {
+		t.Fatal("delivery unexpectedly succeeded")
+	}
+	// The receipt crosses the seam alongside the error; neither may carry relay text.
+	if receipt != (routing.Receipt{Code: code}) {
+		t.Fatalf("receipt = %#v, want only the reply code", receipt)
+	}
+	persisted := err.Error()
+	for _, secret := range []string{"acme.example", "relay-7.mail.internal", "recipient rejected"} {
+		if strings.Contains(persisted, secret) {
+			t.Fatalf("persisted error %q leaked %q", persisted, secret)
+		}
+	}
+	if !strings.Contains(persisted, strconv.Itoa(code)) {
+		t.Fatalf("persisted error %q dropped the reply code", persisted)
+	}
+	var reply *textproto.Error
+	if !errors.As(err, &reply) {
+		t.Fatalf("error lost its reply cause: %v", err)
 	}
 }
 
