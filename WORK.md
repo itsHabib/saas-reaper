@@ -31,6 +31,7 @@ locates any tampered row.
 - `.gitignore`: keep verifier bytecode out of the repository proof.
 - `Makefile`: expose audit demo, invariant, and complete specimen proof targets.
 - `.github/workflows/ci.yml`: cache the nested module and run the loopback-only audit proof job.
+- `REAPER.yaml`: declare the third specimen in the capability manifest.
 - `README.md`: describe the third specimen, its verifier proof, and its honest boundary.
 - `AGENTS.md`: add the audit ledger paragraph to the paired agent guide.
 - `CLAUDE.md`: add the byte-identical audit ledger paragraph.
@@ -53,15 +54,15 @@ locates any tampered row.
 
 - Verified: nested `make check`, `make demo`, and `make invariants` pass locally.
 - Verified: Go known-answer tests match hashes produced by the Python verifier without shared code.
-- Pending: root `make check` and `make product-demo` on the pushed head, then CI and `@codex review`.
-
-- Reviewed: the Claude review's eight findings were each reproduced by a
-  focused test and folded: queue-head starvation, 2xx-with-torn-body retry,
-  fan-out abort on a racing disable, the global attempt permit, bash 3.2
-  cleanup, manifest drift, dual transition tables, and laundered signing
-  failures.
+- Verified: the nested check passes after rebasing onto the current webhook base.
+- Pending: root and CI checks on the pushed rebased head.
+- Reviewed: the first Codex round's exact-schema and integer-sequence findings
+  and the second round's U+FFFD-domain and unreadable-input findings were each
+  reproduced, fixed, and covered by regression tests.
 
 ## Handoff
 
-- Last: the specimen, root wiring, and paired agent guides are complete on the working tree.
-- Next: run the root floor, push the exact head, request `@codex review`, fold verified findings in at most two rounds, and stop at the reviewed CI-green head without Gate or merge.
+- Last: rebased onto webhook head `bb8061e`, retained the audit-ledger work
+  contract, and declared the specimen in `REAPER.yaml`.
+- Next: push the rebased exact head, resolve the answered Codex threads after
+  verification, and stop at the CI-green head without Gate or merge.
