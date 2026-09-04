@@ -154,10 +154,12 @@ Delivery is at least once. A receiver can accept a request immediately before
 the process loses the corresponding SQLite commit; the pending delivery will
 then be sent again. Consumers should use `webhook-id` for idempotency. A 2xx
 status is terminal even when the response body cannot be drained. Disable
-commits immediately and prevents new work and queued retries; the attempt
-transaction is the only arbiter between an in-flight send and a concurrent
-disable, so an attempt that lost that race is dropped without an audit row and
-never retried. Disable cannot recall a request already accepted by the
+commits immediately and prevents new work and queued retries. Every batched
+delivery is rechecked immediately before its send, so work canceled after the
+batch was selected - including the siblings a 410 cancels mid-batch - is never
+sent. For the remaining window, the attempt transaction is the only arbiter
+between an in-flight send and a concurrent disable, so an attempt that lost
+that race is dropped without an audit row and never retried. Disable cannot recall a request already accepted by the
 receiver. Publication skips an endpoint disabled since it was listed rather
 than failing the message and its other deliveries. A delivery whose stored
 secret cannot sign terminates as `failed` after one audit row. A delivery whose

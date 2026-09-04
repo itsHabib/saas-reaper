@@ -12,6 +12,8 @@ const (
 	attemptAuditTimeout = 10 * time.Second
 	// auditFailureBackoff keeps a delivery whose attempt could not be audited off the queue head.
 	auditFailureBackoff = 30 * time.Second
+	// maxDueBatch is the largest batch the store will select in one pass.
+	maxDueBatch = 100
 )
 
 // Dispatch is the complete private input for one outbound attempt.
@@ -29,6 +31,7 @@ type Dispatch struct {
 // DispatchStore supplies due work and atomically records attempt plus transition.
 type DispatchStore interface {
 	Due(context.Context, time.Time, int) ([]Dispatch, error)
+	Deliverable(context.Context, string) (bool, error)
 	RecordAttempt(context.Context, Attempt) error
 }
 
@@ -74,34 +77,54 @@ func NewDispatcher(
 
 // DeliverDue attempts one batch of at most limit due deliveries in deterministic queue order.
 //
-// A delivery whose attempt cannot be audited is parked in memory for
-// auditFailureBackoff so the rest of the queue keeps moving; the returned
-// count covers attempted deliveries and the error joins every audit failure.
+// Each delivery is rechecked immediately before its send, so a cancellation
+// this batch itself caused - a 410 disabling an endpoint shared by later items
+// - never produces an unaudited POST to an endpoint already disabled. A
+// delivery whose attempt cannot be audited is parked in memory for
+// auditFailureBackoff, and selection over-fetches by the parked count so a
+// fully parked prefix cannot hide auditable work behind it.
 func (d *Dispatcher) DeliverDue(ctx context.Context, limit int) (int, error) {
-	if limit < 1 || limit > 100 {
-		return 0, fmt.Errorf("%w: due limit must be between 1 and 100", ErrInvalid)
+	if limit < 1 || limit > maxDueBatch {
+		return 0, fmt.Errorf("%w: due limit must be between 1 and %d", ErrInvalid, maxDueBatch)
 	}
 	now := d.now().UTC()
-	due, err := d.store.Due(ctx, now, limit)
+	d.releaseParked(now)
+	due, err := d.store.Due(ctx, now, min(limit+len(d.parked), maxDueBatch))
 	if err != nil {
 		return 0, fmt.Errorf("load due deliveries: %w", err)
 	}
-	d.releaseParked(now)
 	attempted := 0
 	var dispatchErrors []error
 	for _, item := range due {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || attempted == limit {
 			break
 		}
-		if _, parked := d.parked[item.DeliveryID]; parked {
-			continue
-		}
-		attempted++
-		if err := d.deliver(ctx, item); err != nil {
+		sent, err := d.attempt(ctx, item)
+		if err != nil {
 			dispatchErrors = append(dispatchErrors, err)
+		}
+		if sent {
+			attempted++
 		}
 	}
 	return attempted, errors.Join(dispatchErrors...)
+}
+
+// attempt reports whether the delivery was sent; a skipped delivery is neither sent nor an error.
+func (d *Dispatcher) attempt(ctx context.Context, item Dispatch) (bool, error) {
+	if _, parked := d.parked[item.DeliveryID]; parked {
+		return false, nil
+	}
+	deliverable, err := d.store.Deliverable(ctx, item.DeliveryID)
+	if err != nil {
+		return false, fmt.Errorf("recheck delivery %s: %w", item.DeliveryID, err)
+	}
+	if !deliverable {
+		d.logger.InfoContext(ctx, "skipped a delivery canceled since its batch was selected",
+			"delivery", item.DeliveryID, "endpoint", item.EndpointID)
+		return false, nil
+	}
+	return true, d.deliver(ctx, item)
 }
 
 func (d *Dispatcher) releaseParked(now time.Time) {

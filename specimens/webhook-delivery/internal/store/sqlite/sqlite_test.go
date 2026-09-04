@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -776,5 +777,70 @@ func TestDisableDuringSendIsALostRaceWithNoAuditRow(t *testing.T) {
 	}
 	if len(due) != 0 {
 		t.Fatalf("disabled endpoint still has due work: %#v", due)
+	}
+}
+
+type goneSender struct {
+	calls int
+}
+
+func (s *goneSender) Send(context.Context, string, []byte, delivery.Headers) (delivery.SendResult, error) {
+	s.calls++
+	return delivery.SendResult{StatusCode: http.StatusGone}, nil
+}
+
+func TestGoneResponseStopsSendingToItsSiblingsInTheSameBatch(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	at := time.Unix(800, 0).UTC()
+	endpoint := testEndpoint(t, "ep_gone", at)
+	if _, err := store.RegisterEndpoint(ctx, endpoint, 0); err != nil {
+		t.Fatal(err)
+	}
+	message := testMessage("msg_gone", at)
+	first := testDelivery("del_gone_first", message.ID, endpoint.ID, delivery.DeliveryOriginal, at)
+	sibling := testDelivery("del_gone_sibling", message.ID, endpoint.ID, delivery.DeliveryOriginal, at)
+	if _, err := store.Publish(ctx, message, []delivery.Delivery{first, sibling}); err != nil {
+		t.Fatal(err)
+	}
+	schedule, err := delivery.NewSchedule(delivery.DefaultRetryDelays)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &goneSender{}
+	dispatcher, err := delivery.NewDispatcher(
+		store,
+		sender,
+		schedule,
+		func() time.Time { return at },
+		slog.New(slog.DiscardHandler),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count, err := dispatcher.DeliverDue(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The 410 disables the endpoint and cancels the sibling inside the same transaction,
+	// so the sibling must never be POSTed even though the batch already held it.
+	if sender.calls != 1 || count != 1 {
+		t.Fatalf("sends/count = %d/%d, want the sibling skipped after the endpoint was disabled", sender.calls, count)
+	}
+	assertDeliveryState(t, store, first.ID, delivery.StateDisabled, 1)
+	assertDeliveryState(t, store, sibling.ID, delivery.StateDisabled, 0)
+	attempts, err := store.Attempts(ctx, delivery.AttemptFilter{}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attempts) != 1 || attempts[0].Outcome != delivery.OutcomeEndpointDisabled {
+		t.Fatalf("audit = %#v, want exactly one endpoint_disabled row", attempts)
+	}
+	disabled, err := store.Endpoint(ctx, endpoint.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.Enabled {
+		t.Fatal("endpoint stayed enabled after a 410")
 	}
 }

@@ -17,10 +17,19 @@ type dispatchMemory struct {
 	due      []Dispatch
 	attempts []Attempt
 	reject   func(Attempt) error
+	// canceled names deliveries the store no longer considers deliverable.
+	canceled map[string]bool
 }
 
 func (m *dispatchMemory) Due(_ context.Context, _ time.Time, limit int) ([]Dispatch, error) {
 	return append([]Dispatch(nil), m.due[:min(limit, len(m.due))]...), nil
+}
+
+func (m *dispatchMemory) Deliverable(_ context.Context, id string) (bool, error) {
+	if m.canceled[id] {
+		return false, nil
+	}
+	return slices.ContainsFunc(m.due, func(item Dispatch) bool { return item.DeliveryID == id }), nil
 }
 
 func (m *dispatchMemory) RecordAttempt(_ context.Context, attempt Attempt) error {
@@ -259,5 +268,57 @@ func TestDispatcherTerminatesAnUnsignableDeliveryAfterOneAudit(t *testing.T) {
 	}
 	if store.attempts[1].Outcome != OutcomeDelivered {
 		t.Fatalf("sibling attempt = %#v, want delivered", store.attempts[1])
+	}
+}
+
+func TestDispatcherSkipsADeliveryCanceledSinceTheBatchWasSelected(t *testing.T) {
+	store := &dispatchMemory{
+		due:      []Dispatch{testDispatch("del_canceled"), testDispatch("del_live")},
+		canceled: map[string]bool{"del_canceled": true},
+	}
+	sender := &senderStub{result: SendResult{StatusCode: 204}}
+	dispatcher := testDispatcher(t, store, sender, func() time.Time { return time.Unix(130, 0).UTC() })
+	count, err := dispatcher.DeliverDue(t.Context(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || sender.calls != 1 {
+		t.Fatalf("count/sends = %d/%d, want the canceled delivery skipped without a send", count, sender.calls)
+	}
+	if !slices.Equal(store.attemptedIDs(), []string{"del_live"}) {
+		t.Fatalf("attempted = %v, want only the live delivery", store.attemptedIDs())
+	}
+}
+
+func TestDispatcherSelectsPastAFullyParkedPrefix(t *testing.T) {
+	store := &dispatchMemory{
+		due: []Dispatch{testDispatch("del_a"), testDispatch("del_b"), testDispatch("del_healthy")},
+		reject: func(attempt Attempt) error {
+			if attempt.DeliveryID == "del_healthy" {
+				return nil
+			}
+			return errAuditUnavailable
+		},
+	}
+	sender := &senderStub{result: SendResult{StatusCode: 204}}
+	now := time.Unix(140, 0).UTC()
+	dispatcher := testDispatcher(t, store, sender, func() time.Time { return now })
+
+	// The first pass fills the whole batch with rows that cannot be audited.
+	count, err := dispatcher.DeliverDue(t.Context(), 2)
+	if !errors.Is(err, errAuditUnavailable) || count != 2 {
+		t.Fatalf("first pass = %d/%v, want both poisoned rows attempted", count, err)
+	}
+	if len(dispatcher.parked) != 2 {
+		t.Fatalf("parked = %#v, want both poisoned rows parked", dispatcher.parked)
+	}
+
+	// The parked prefix still sorts first, so selection must over-fetch to reach the healthy row.
+	count, err = dispatcher.DeliverDue(t.Context(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || !slices.Equal(store.attemptedIDs(), []string{"del_healthy"}) {
+		t.Fatalf("second pass = %d with attempted %v, want the healthy row behind the parked prefix", count, store.attemptedIDs())
 	}
 }

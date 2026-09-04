@@ -59,6 +59,27 @@ func (s *Store) Due(ctx context.Context, now time.Time, limit int) ([]delivery.D
 	return due, nil
 }
 
+// Deliverable reports whether a delivery is still pending against an enabled endpoint.
+//
+// The dispatcher rechecks each batched delivery with this immediately before
+// sending, so work canceled after the batch was selected is never sent.
+func (s *Store) Deliverable(ctx context.Context, id string) (bool, error) {
+	var pending int
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM deliveries AS d
+		 JOIN endpoints AS e ON e.id = d.endpoint_id
+		 WHERE d.id = ? AND d.state = ? AND e.enabled = 1`,
+		id,
+		delivery.StatePending,
+	).Scan(&pending)
+	if err != nil {
+		return false, fmt.Errorf("recheck delivery %s: %w", id, err)
+	}
+	return pending == 1, nil
+}
+
 // RecordAttempt appends one audit row and applies its delivery transition atomically.
 func (s *Store) RecordAttempt(ctx context.Context, attempt delivery.Attempt) error {
 	if err := validateAttempt(attempt); err != nil {
