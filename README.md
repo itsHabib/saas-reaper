@@ -103,6 +103,33 @@ make webhook-invariants
 make webhook-proof
 ```
 
+The third specimen lives in
+[`specimens/notification-routing`](specimens/notification-routing). Hosted
+notification routers charge per message for template substitution and a fan-out
+loop over transports the customer already owns and already pays for, so the
+capability meets the same selection rule. The specimen defines templates per
+channel, stores recipients with per-channel addresses and preferences, fans one
+send out to every channel a recipient allows, deduplicates re-sends by
+idempotency key, and audits every attempt. It speaks two open wire protocols —
+SMTP to the customer's own relay and Slack-compatible incoming webhooks — behind
+one narrow transport seam, and it too leaves the factory untouched.
+
+Its demo delivers into `emersion/go-smtp`, a real third-party SMTP server
+implementation, and asserts the rendered subject and body a real mail parser
+produced. That proves a complete SMTP transaction against an independent
+implementation, not deliverability: TLS with a public relay, provider
+authentication, and DKIM/SPF alignment stay outside the proof, as
+`specimens/notification-routing/README.md` records.
+
+Run the notification proofs without external runtime traffic:
+
+```sh
+make notification-demo
+make notification-invariants
+# static checks plus both runnable proofs
+make notification-proof
+```
+
 ## Frontier work contract
 
 Every generated repository includes a tailored `WORK.md`: a compact active-work

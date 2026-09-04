@@ -1,81 +1,65 @@
 <!-- reaper-work:v1 -->
-# Work: Customer-owned webhook delivery specimen
+# Work: Customer-owned notification routing specimen
 
-Work-ID: webhook-delivery-specimen
+Work-ID: notification-routing-specimen
 Status: active
-Subject: git:6517797efde09c323f53c165899caf3bd15c5fbc
+Subject: git:9334a0bbc99df69dc19abd834249ee89c23cb57e
 Stop-at: reviewed-change
 
 ## Outcome
 
-An in-repository, customer-owned Go webhook-delivery specimen registers and
-disables endpoints, publishes exact payload bytes, signs Standard Webhooks
-deliveries, retries failures on a bounded schedule, replays messages, and
-persists an append-only attempt audit that official Go, JavaScript, and Python
-verifiers accept through local runnable proofs.
+An in-repository, customer-owned Go notification-routing specimen defines
+per-channel templates, stores recipients with per-channel addresses and
+preferences, renders and fans one send out to every channel a recipient allows,
+deduplicates re-sends by idempotency key, retries transient transport failures
+on a bounded schedule, and persists an append-only attempt audit that local
+runnable proofs verify against a real third-party SMTP server implementation
+and a Slack-shape incoming-webhook receiver.
 
 ## Preserve
 
-- The feature-flags golden specimen and factory output stay behaviorally unchanged.
+- The feature-flags and webhook-delivery specimens stay behaviorally unchanged.
 - `internal/factory/validate.go` continues to reject every capability other than `feature-flags`.
 - Policy, HTTP transport, persistence, and worker mechanisms remain one-way layers with consumer-owned interfaces.
 - Management and audit-read credentials stay separate; the configured principal supplies the audit actor.
-- Demo and CI delivery traffic stays on loopback and no external infrastructure is provisioned.
+- Demo and CI notification traffic stays on loopback ports `1940x` and no external infrastructure is provisioned.
 
 ## Change
 
-- `specimens/webhook-delivery/`: add the independent Go module, official verifier fixtures, local demo, invariant probes, and scoped checks.
+- `specimens/notification-routing/`: add the independent Go module, both transport packages, SMTP and Slack-shape sink fixtures, local demo, invariant probes, and scoped checks.
+- `Makefile`: expose notification demo, invariant, and complete specimen proof targets.
 - `scripts/setup.sh`: install the nested specimen's pinned dependencies.
 - `scripts/check.sh`: include the nested module in the root verification floor.
-- `scripts/check-boundaries.sh`: exclude installed nested dependencies while continuing to scan authored specimen source.
-- `.gitignore`: keep nested verifier installations and bytecode out of the repository proof.
-- `Makefile`: expose webhook demo, invariant, and complete specimen proof targets.
-- `.github/workflows/ci.yml`: run the local-only webhook interoperability and invariant proof.
-- `README.md`: describe the second specimen, selection principle, runnable proof, and factory boundary honestly.
-- `REAPER.yaml`: declare both golden specimens in the artifact manifest.
-- `AGENTS.md`: extend the paired law with the webhook specimen's layers, proofs, and authority rules.
-- `CLAUDE.md`: keep the byte-identical projection of the extended law.
+- `.github/workflows/ci.yml`: run the local-only notification transport and invariant proof and cache the new module sums.
+- `REAPER.yaml`: declare the third specimen in the capability manifest.
+- `README.md`: describe the third specimen, its selection principle, its runnable proof, and what that proof does not establish.
+- `AGENTS.md`: record the third specimen's layering, transport seam, token boundary, and proof obligations.
+- `CLAUDE.md`: keep the paired agent guide byte-identical.
 - `WORK.md`: bind this exact task, proof, and stop boundary.
 
 ## Prove
 
-- Green: `make check` passes with nested Go race tests, lint, shell, TypeScript, Python, and boundary checks.
-- Green: `make webhook-demo` shows all three official verifier libraries accept real deliveries and reject a tampered signature.
-- Green: `make webhook-invariants` proves retry-after-failure, disabled silence, replay identity, restart durability, and token separation.
-- Red: a changed payload or signature is rejected, failed sends are audited before retry, and a forced audit insert failure cannot advance delivery state.
+- Green: `make check` passes with nested Go race tests, strict lint, shell format, shellcheck, and the specimen's own boundary script.
+- Green: `make notification-demo` shows `emersion/go-smtp` parsing the rendered subject and body and the Slack-shape receiver validating the documented payload.
+- Green: `make notification-invariants` proves render rejection, idempotency, honored preferences, retry auditing, restart durability, and token separation.
+- Green: `make product-demo` remains unaffected by the nested module.
+- Red: a send missing a template variable returns 400 and reaches no transport, a reused idempotency key delivers only once, a reused key with a different payload returns 409, and a forced audit insert failure cannot advance delivery state.
 
 ## Stop
 
 - Stop if the nested module requires root import coupling, a `go.work`, or factory capability changes.
-- Stop before any non-loopback demo dependency, external infrastructure, Gate invocation, or merge.
+- Stop before any non-loopback proof dependency, vendor account, external infrastructure, Gate invocation, or merge.
 - Stop after two review-fix rounds even if a broader architectural finding remains.
 
 ## Evidence
 
-- Verified: root `make check`, `make demo`, and `make product-demo` pass.
-- Verified: nested `make check`, `make demo`, and `make invariants` pass; all
-  three official verifier libraries accept literal fixture bytes and reject
-  same-length signature tampering.
-- Verified: race tests cover both disable/send orderings, replay attribution
-  across a principal change, owner-only database mode, atomic audit rollback,
-  and destination-credential redaction from the read authority.
-- Reviewed: five adversarial findings were reproduced and folded before PR.
-- Reviewed: first `@codex review` round found response-start retry timing and
-  graceful-shutdown audit loss; both were reproduced and fixed with focused
-  race tests before the second exact-head review.
-- Reviewed: second `@codex review` round found stale paired agent guides and a
-  whitespace-only actor accepted at service construction; both were reproduced
-  and folded in the second and final allowed fix round.
-
-- Reviewed: the Claude review's eight findings were each reproduced by a
-  focused test and folded: queue-head starvation, 2xx-with-torn-body retry,
-  fan-out abort on a racing disable, the global attempt permit, bash 3.2
-  cleanup, manifest drift, dual transition tables, and laundered signing
-  failures.
+- Verified: nested `make check`, `make demo`, and `make invariants` pass; the real SMTP server received the rendered notification and the Slack-shape receiver accepted the documented payload.
+- Verified: the exhaustive delivery state walk pins 16 reachable durable states, covers both cancellation shapes, and reaches every terminal state.
+- Verified: race tests cover the dispatcher continuing past a poisoned audit write, an unconfigured transport kind failing permanently, shutdown auditing, atomic audit rollback, and address redaction from the read authority.
+- Reviewed: the eight defects recorded in the webhook specimen's review were designed against rather than repeated.
+- Reviewed: two review rounds found six issues; all were reproduced and fixed with focused regression tests, and the one residue that cannot be closed without a lock across network I/O is documented instead.
 
 ## Handoff
 
-- Last: the Claude review round removed the attempt coordinator in favour of
-  the store transaction, parked unauditable rows, and added the `failed` state.
-- Next: rerun every proof, push the exact head, request one `@codex review`,
-  and stop at the reviewed CI-green head without Gate or merge.
+- Last: the second and final allowed fix round removed remote-controlled text from the transport receipt and realigned this record with the widened state walk.
+- Next: confirm the reviewed head is CI-green and stop there without Gate or merge.

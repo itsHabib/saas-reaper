@@ -1,0 +1,11 @@
+{
+  "customer": {
+    "name": "Acme & Co <billing>"
+  },
+  "invoice": {
+    "id": "inv_20260901_001",
+    "amount": 4200.50,
+    "currency": "usd",
+    "paid": true
+  }
+}
