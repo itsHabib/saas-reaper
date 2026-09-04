@@ -1,9 +1,10 @@
 # Agent operating guide
 
-This repository contains the SaaS Reaper factory and two customer-owned golden
-specimens: the root Go feature-flag service and the independent Go outbound
-webhook-delivery module under `specimens/webhook-delivery/`. The factory still
-composes feature-flag services only. The proofs are intentionally bounded;
+This repository contains the SaaS Reaper factory and three customer-owned golden
+specimens: the root Go feature-flag service, the independent Go outbound
+webhook-delivery module under `specimens/webhook-delivery/`, and the independent
+Go notification-routing module under `specimens/notification-routing/`. The
+factory still composes feature-flag services only. The proofs are intentionally bounded;
 preserve their compatibility rules unless the operator explicitly expands them.
 
 `AGENTS.md` and `CLAUDE.md` are paired entrypoints. Keep them byte-identical.
@@ -19,9 +20,10 @@ Read, in order:
 5. The nearest package source and tests for the change.
 6. The relevant repo skill under `skills/`.
 
-Webhook specimen work also reads `specimens/webhook-delivery/README.md`. Keep
-that module independent: do not add a root import, `go.work`, or webhook
-capability to the factory as part of specimen maintenance.
+Webhook specimen work also reads `specimens/webhook-delivery/README.md`, and
+notification specimen work reads `specimens/notification-routing/README.md`.
+Keep each module independent: do not add a root import, `go.work`, or a webhook
+or notification capability to the factory as part of specimen maintenance.
 
 `WORK.md` records intent and resumable state; it does not grant authority. Keep
 it at or below 120 lines and run `make work` after changing it.
@@ -41,6 +43,8 @@ make demo
 make product-demo
 make webhook-demo
 make webhook-invariants
+make notification-demo
+make notification-invariants
 make check
 ```
 
@@ -53,6 +57,11 @@ paths and unsafe combinations; it must never apply external infrastructure.
 Run both webhook proof commands after changes to webhook policy, signing,
 transport, persistence, worker behavior, official verifier pins, or fixtures.
 Their traffic must remain on loopback with an injectable retry clock.
+
+Run both notification proof commands after changes to notification policy,
+template rendering, either transport, persistence, worker behavior, or sink
+fixtures. Their traffic must remain on loopback ports `1940x` with an injectable
+retry clock.
 
 ## Boundary law
 
@@ -84,6 +93,19 @@ Signed deliveries use the exact stored payload bytes. Attempt audit insertion
 and delivery state advancement are one SQLite transaction, and the audit is
 append-only. Retry schedules are bounded; replay keeps the original message ID
 and creates a fresh delivery identity.
+
+The notification specimen keeps policy in `internal/routing`, HTTP/API
+translation in `internal/api`, one wire protocol per transport package under
+`internal/transport/`, persistence in `internal/store/sqlite`, and polling in
+`internal/worker`. A transport receives an already-rendered, already-addressed
+envelope and classifies its own failures; an error wrapping `ErrPermanent` ends
+retries and every other error is transient. Retry schedules stay in policy,
+computed outside the worker. One outcome-to-state table in
+`routing.TransitionFor` is called by both policy and the store so the two cannot
+drift. Every channel variant renders before anything is queued, so a missing
+template variable rejects the whole send instead of delivering to some channels.
+Attempt audit insertion and delivery state advancement are one SQLite
+transaction, and the audit is append-only.
 
 ## Engineering principles
 
@@ -139,6 +161,11 @@ audit-read token. Neither token selects the audit actor, endpoint secrets are
 never returned by the read surface, and disabling an endpoint prevents future
 or already-queued sends.
 
+The notification specimen separates the same two authorities. Neither token
+selects the audit actor, the audit read never exposes a recipient address, a
+webhook URL, or a relay host, and disabling a channel cancels its queued
+deliveries in the same transaction that revisions it.
+
 Agents may implement an operator-requested change and run validation. They may not silently broaden supported flag kinds, rule operators, targeting data, write authority, or excluded capabilities.
 
 ## Change recipes
@@ -151,6 +178,9 @@ Agents may implement an operator-requested change and run validation. They may n
 - Storage: change one `internal/store/<mechanism>`; run the store contract, restart, conflict, and atomic-audit tests.
 - Webhook delivery: change only `specimens/webhook-delivery/`; run `make check`,
   `make webhook-demo`, and `make webhook-invariants` from the repository root.
+- Notification routing: change only `specimens/notification-routing/`; run
+  `make check`, `make notification-demo`, and `make notification-invariants`
+  from the repository root.
 
 ## Done means evidence
 
@@ -160,5 +190,6 @@ A change is complete only when:
 - `make check` passes, including race and boundary checks.
 - `make demo` passes when a runnable surface changed.
 - Both webhook proofs pass when the webhook specimen changed.
+- Both notification proofs pass when the notification specimen changed.
 - `WORK.md`, `AGENTS.md`, `CLAUDE.md`, `DOMAIN.md`, `REAPER.yaml`, and `README.md` remain consistent with the code.
 - The diff contains no unrelated cleanup or speculative capability.
