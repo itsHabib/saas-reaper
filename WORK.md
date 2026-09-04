@@ -32,7 +32,7 @@ proves its compatibility against a real, unmodified Prometheus Alertmanager.
 - `.gitignore`: keep the demo's container scratch directory out of the repository proof.
 - `.github/workflows/ci.yml`: run the Docker-backed compatibility proof and the loopback invariants in a dedicated job.
 - `README.md`: describe the third specimen, its Alertmanager proof, and its documented gaps.
-- `REAPER.yaml`: register all three specimens and their proofs instead of claiming one.
+- `REAPER.yaml`: declare the third specimen in the capability manifest.
 - `AGENTS.md`: record the third specimen's boundary law, authority split, proof commands, and change recipe.
 - `CLAUDE.md`: keep the paired agent guide byte-identical with `AGENTS.md`.
 - `WORK.md`: bind this exact task, proof, and stop boundary.
@@ -59,15 +59,12 @@ proves its compatibility against a real, unmodified Prometheus Alertmanager.
 - Verified: an exhaustive state walk drives every signal from every reachable durable state and pins the reachable-state count at 13.
 - Reviewed: the first `@codex review` round found two P1s, both reproduced and fixed. A lost ingest race could surface as HTTP 409, which the upstream retrier drops, silently discarding a resolve; the re-apply is now bounded and a persistent conflict answers 503. Raw transport errors reached the audit carrying destination URLs and SMTP reply text; a transport now returns one classification from its own vocabulary and policy persists nothing else.
 - Verified: a new invariant probe pages an unreachable destination and proves the audit records a classification with no host, path, or port.
-- Pending: root `make check` on the exact pushed head and the second review round.
-
-- Reviewed: the Claude review's eight findings were each reproduced by a
-  focused test and folded: queue-head starvation, 2xx-with-torn-body retry,
-  fan-out abort on a racing disable, the global attempt permit, bash 3.2
-  cleanup, manifest drift, dual transition tables, and laundered signing
-  failures.
+- Reviewed: the second `@codex review` found no major issues at `25de9a6`.
+- Pending: root and CI checks on the pushed rebased head.
 
 ## Handoff
 
-- Last: the first review round's two P1 findings are folded in with focused regression tests, a new redaction probe, and honest README wording.
-- Next: rerun every proof, push the exact head, reply per thread, request the final `@codex review`, and stop at the reviewed CI-green head without Gate or merge.
+- Last: rebased the reviewed commits onto the current webhook base and retained
+  the base manifest shape while declaring incident escalation.
+- Next: push the rebased exact head, resolve the answered Codex threads after
+  verification, and stop at the CI-green head without Gate or merge.
