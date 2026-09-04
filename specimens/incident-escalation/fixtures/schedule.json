@@ -1,0 +1,19 @@
+{
+  "id": "payments-primary",
+  "name": "Payments primary rotation",
+  "layers": [
+    {
+      "name": "weekly-primary",
+      "start": "2026-01-05T09:00:00Z",
+      "rotation": "168h",
+      "responders": ["ada", "grace"]
+    }
+  ],
+  "overrides": [
+    {
+      "responder": "linus",
+      "start": "2026-01-10T09:00:00Z",
+      "end": "2026-01-12T09:00:00Z"
+    }
+  ]
+}

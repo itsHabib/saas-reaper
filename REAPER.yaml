@@ -6,6 +6,8 @@ specimens:
     path: .
   - name: webhook-delivery
     path: specimens/webhook-delivery
+  - name: incident-escalation
+    path: specimens/incident-escalation
 
 factory:
   languages:
