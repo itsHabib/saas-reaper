@@ -28,4 +28,6 @@ PYTHONPYCACHEPREFIX=$python_cache python3 -m unittest discover -s verifier -p 'v
 go run mvdan.cc/sh/v3/cmd/shfmt@v3.13.1 -d -i 2 -ci -sr scripts
 shellcheck scripts/*.sh
 jq -e 'type == "array" and length > 0' fixtures/events.json > /dev/null
+jq -se 'length > 0 and all(.[]; has("name") and has("input") and has("canonical"))' \
+  fixtures/canonical-vectors.jsonl > /dev/null
 ./scripts/check-boundaries.sh

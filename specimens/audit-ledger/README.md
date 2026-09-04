@@ -65,7 +65,8 @@ The canonical JSON rules, applied recursively to `metadata`:
 - Strings are raw UTF-8. Only `"` (as `\"`), `\` (as `\\`), and U+0000–U+001F
   (as lowercase `\u00xx`) are escaped. `/`, `<`, `>`, `&`, U+007F, U+2028, and
   every non-ASCII code point are written unescaped. Strings containing U+FFFD
-  are rejected at ingest so undecodable input cannot become a valid entry.
+  are rejected — at ingest and by the verifier — so undecodable input cannot
+  become a valid entry on either side.
 - Numbers are integers with magnitude at most 2^53−1, rendered in decimal
   with no leading zeros, exponent, fraction, or negative zero (`-0` is `0`).
   Any other number is rejected at ingest.
@@ -81,9 +82,23 @@ the remaining members, and compare. A line must carry exactly the ten members
 above plus `hash` and nothing else, every one of them a string except the
 integer `sequence` and the free-form `metadata`. A verifier that silently
 ignored an unexpected member, or that accepted a boolean where an integer
-belongs, would report a line as verified while authenticating only part of it. `verifier/verify.py` prints
-`ok sequence=N head=HEX` on success and `broken sequence=N reason=...` with
-exit `1` at the first hash mismatch, gap, or foreign tenant row.
+belongs, would report a line as verified while authenticating only part of it.
+
+`verifier/verify.py` prints `ok sequence=N head=HEX` and exits `0` when the
+chain recomputes; it prints `broken sequence=N reason=...` and exits `1` at the
+first hash mismatch, gap, or foreign tenant row; it prints `unreadable export:
+...` on stderr and exits `2` when the input cannot be read as the contract at
+all — a missing or unreadable path, invalid UTF-8, a malformed line, an
+unexpected member, or a wrongly typed one. A caller can therefore tell a broken
+chain apart from an unusable file.
+
+The two implementations must accept exactly the same inputs, not merely agree
+on the ones both accept: a value one side hashes and the other refuses would
+split the chain silently. `fixtures/canonical-vectors.jsonl` pins that shared
+domain as 49 cases — each an exact input with its expected canonical bytes, or
+`null` where both must refuse. `internal/ledger/vectors_test.go` and the
+`SharedVectorTest` in `verifier/verify_test.py` both read that one file, so
+widening or narrowing either implementation alone fails the other's test.
 
 ## HTTP surface
 

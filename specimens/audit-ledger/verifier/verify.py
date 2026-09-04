@@ -39,6 +39,11 @@ class ContractError(ValueError):
 
 
 def canonical_string(value):
+    # The Go canonicalizer rejects U+FFFD so undecodable input cannot become a
+    # valid entry; accepting it here would let the two implementations disagree
+    # on which bytes form a valid chain.
+    if "\ufffd" in value:
+        raise ContractError("string contains U+FFFD")
     out = ['"']
     for char in value:
         code = ord(char)
@@ -158,19 +163,27 @@ def main(argv):
     if len(argv) > 2:
         print("usage: verify.py [EXPORT.ndjson]", file=sys.stderr)
         return 2
-    source = sys.stdin
-    if len(argv) == 2:
-        source = open(argv[1], encoding="utf-8")
+    try:
+        source = open_source(argv)
+    except OSError as error:
+        print("unreadable export: %s" % error, file=sys.stderr)
+        return 2
     with source:
         try:
             healthy, report = verify(source)
-        except ContractError as error:
+        except (ContractError, UnicodeError) as error:
             print("unreadable export: %s" % error, file=sys.stderr)
             return 2
     print(report)
     if healthy:
         return 0
     return 1
+
+
+def open_source(argv):
+    if len(argv) == 2:
+        return open(argv[1], encoding="utf-8")
+    return sys.stdin
 
 
 if __name__ == "__main__":
