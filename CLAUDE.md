@@ -4,8 +4,9 @@ This repository contains the SaaS Reaper factory and three customer-owned golden
 specimens: the root Go feature-flag service, the independent Go outbound
 webhook-delivery module under `specimens/webhook-delivery/`, and the independent
 Go notification-routing module under `specimens/notification-routing/`. The
-factory still composes feature-flag services only. The proofs are intentionally bounded;
-preserve their compatibility rules unless the operator explicitly expands them.
+factory still composes feature-flag services only. The proofs are intentionally
+bounded; preserve their compatibility rules unless the operator explicitly
+expands them.
 
 `AGENTS.md` and `CLAUDE.md` are paired entrypoints. Keep them byte-identical.
 

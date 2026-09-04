@@ -6,6 +6,8 @@ specimens:
     path: .
   - name: webhook-delivery
     path: specimens/webhook-delivery
+  - name: notification-routing
+    path: specimens/notification-routing
 
 factory:
   languages:

@@ -30,7 +30,8 @@ and a Slack-shape incoming-webhook receiver.
 - `Makefile`: expose notification demo, invariant, and complete specimen proof targets.
 - `scripts/setup.sh`: install the nested specimen's pinned dependencies.
 - `scripts/check.sh`: include the nested module in the root verification floor.
-- `.github/workflows/ci.yml`: run the local-only notification transport and invariant proof, cache the new module sums, and declare the tools the fast floor already used.
+- `.github/workflows/ci.yml`: run the local-only notification transport and invariant proof and cache the new module sums.
+- `REAPER.yaml`: declare the third specimen in the capability manifest.
 - `README.md`: describe the third specimen, its selection principle, its runnable proof, and what that proof does not establish.
 - `AGENTS.md`: record the third specimen's layering, transport seam, token boundary, and proof obligations.
 - `CLAUDE.md`: keep the paired agent guide byte-identical.
