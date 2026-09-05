@@ -9,7 +9,7 @@ source "$harness_dir/harness.sh"
 trap finish EXIT
 trap 'exit 130' INT TERM
 
-require_free_ports "$control_port" "$edge_port" "$acme_target_port" "$umbrella_target_port"
+require_free_ports "$control_port" "$edge_port" "$acme_target_port" "$umbrella_target_port" "$diag_port"
 build_binaries
 
 boot_server
@@ -76,9 +76,14 @@ audit | jq -e '[.audit[] | select(.subdomain == "acme") | .kind] | index("supers
 # Claims and audit survive a server restart, and agents reconnect on their own schedule. The
 # stop itself is orderly: every live link is told the server is going away and audited.
 audit_before=$(audit | jq -cS '.audit')
+[[ "$(diag_status /debug/pprof/)" == 404 ]] || fail "pprof was reachable without its gate"
 stop_server
 [[ "$(edge_status "acme.$domain" /health)" == 000 ]] || fail "the edge kept answering after the server stopped"
+# The second boot opens the pprof gate, which is the only way that surface ever appears.
+pprof=1
 boot_server
+[[ "$(diag_status /debug/pprof/)" == 200 ]] || fail "pprof did not appear behind its gate"
+metrics | grep -q 'reaper_tunnel_links_live' || fail "metrics are not served on the diagnostics port"
 wait_presence acme live
 wait_presence umbrella live
 [[ "$(whoami_field "acme.$domain" name)" == umbrella ]] || fail "acme did not come back through the surviving agent"

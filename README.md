@@ -95,6 +95,10 @@ agent binary. The independent nested Go module keeps the capability adjacent to
 the future factory source without pretending the factory supports it
 today—`validate.go` still rejects every capability except `feature-flags`.
 
+Every edge request is one structured access line and one Prometheus series on
+a loopback-only diagnostics listener, with pprof behind an explicit gate, and
+the pack ships the server and Caddy access logs to CloudWatch.
+
 Its local proof runs entirely on loopback: two subdomains, two agents, one
 server; bodies, streamed chunks, and WebSocket upgrades pass end to end, and the
 invariant harness holds isolation, credential gating, authority separation,

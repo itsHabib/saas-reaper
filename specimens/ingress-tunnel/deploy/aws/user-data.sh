@@ -13,6 +13,8 @@ lib=/usr/local/lib/reaper-tunnel
 install -d -m 0755 /etc/caddy
 install -d -m 0750 -o 65532 -g 65532 /var/lib/caddy
 install -d -m 0755 "$lib"
+install -d -m 0750 -o 65532 -g 65532 /var/log/reaper-tunnel
+install -d -m 0750 -o 65532 -g 65532 /var/log/caddy
 
 # The claims database lives on the separate state volume, which outlives this instance.
 for _ in $(seq 1 120); do
@@ -44,6 +46,7 @@ install -m 0644 /dev/null /etc/reaper-tunnel-host.conf
   printf 'caddy_key=%s\n' "$caddy_key"
   printf 'domain=%s\n' '${domain}'
   printf 'admin_actor=%s\n' "$(printf '%s' '${admin_actor_base64}' | base64 -d)"
+  printf 'pprof=%s\n' '${pprof}'
   printf 'admin_token_secret_id=%s\n' '${admin_token_secret_id}'
   printf 'read_token_secret_id=%s\n' '${read_token_secret_id}'
 } >> /etc/reaper-tunnel-host.conf
@@ -65,6 +68,8 @@ install -m 0600 -o 65532 -g 65532 /dev/null /etc/reaper-tunnel.env.next
 {
   printf 'REAPER_TUNNEL_CONTROL_ADDR=127.0.0.1:8081\n'
   printf 'REAPER_TUNNEL_EDGE_ADDR=127.0.0.1:8080\n'
+  printf 'REAPER_TUNNEL_DIAG_ADDR=127.0.0.1:8082\n'
+  printf 'REAPER_TUNNEL_PPROF=%s\n' "$pprof"
   printf 'REAPER_TUNNEL_DOMAIN=%s\n' "$domain"
   printf 'REAPER_TUNNEL_DB=/var/lib/reaper-tunnel/tunnel.db\n'
   printf 'REAPER_TUNNEL_FORWARD_PROTO=https\n'
@@ -126,7 +131,8 @@ chmod 0755 "$lib/update.sh"
 
 # Caddy terminates TLS with one wildcard certificate obtained through Route 53 DNS-01 and
 # renews it on its own. The apex on 8443 is the control plane; every wildcard host on 443 is
-# the public edge. Nothing listens on 80.
+# the public edge. Nothing listens on 80. Each site writes a JSON access log: the outermost
+# view, including handshakes and hosts the Go edge never sees.
 cat > /etc/caddy/Caddyfile << 'CADDY'
 {
 	email ${acme_email}
@@ -137,6 +143,13 @@ ${domain}:8443 {
 	tls {
 		dns route53
 	}
+	log {
+		output file /var/log/caddy/control.log {
+			roll_size 50mb
+			roll_keep 5
+		}
+		format json
+	}
 	reverse_proxy 127.0.0.1:8081
 }
 
@@ -144,9 +157,60 @@ ${domain}:8443 {
 	tls {
 		dns route53
 	}
+	log {
+		output file /var/log/caddy/edge.log {
+			roll_size 50mb
+			roll_keep 5
+		}
+		format json
+	}
 	reverse_proxy 127.0.0.1:8080
 }
 CADDY
+
+# The CloudWatch agent ships both services' logs and Caddy's access logs off the host and
+# scrapes the loopback metrics endpoint, so an instance replacement loses no history.
+dnf install -y amazon-cloudwatch-agent
+# Terraform fills the group names and namespace; the InstanceId dimension is the agent's own
+# placeholder, escaped so Terraform leaves it alone.
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWAGENT'
+{
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {"file_path": "/var/log/reaper-tunnel/server.log", "log_group_name": "${log_group_server}", "log_stream_name": "{instance_id}"},
+          {"file_path": "/var/log/caddy/edge.log", "log_group_name": "${log_group_caddy}", "log_stream_name": "{instance_id}/edge"},
+          {"file_path": "/var/log/caddy/control.log", "log_group_name": "${log_group_caddy}", "log_stream_name": "{instance_id}/control"}
+        ]
+      }
+    }
+  },
+  "metrics": {
+    "namespace": "${metrics_namespace}",
+    "append_dimensions": {"InstanceId": "$${aws:InstanceId}"},
+    "metrics_collected": {
+      "prometheus": {
+        "prometheus_config_path": "/opt/aws/amazon-cloudwatch-agent/etc/prometheus.yaml",
+        "emf_processor": {
+          "metric_namespace": "${metrics_namespace}",
+          "metric_declaration": [
+            {"source_labels": ["subdomain"], "label_matcher": ".*", "metric_selectors": ["^reaper_tunnel_.*"], "dimensions": [["subdomain"], []]}
+          ]
+        }
+      }
+    }
+  }
+}
+CWAGENT
+cat > /opt/aws/amazon-cloudwatch-agent/etc/prometheus.yaml << 'PROM'
+global:
+  scrape_interval: 60s
+scrape_configs:
+  - job_name: reaper-tunnel
+    static_configs:
+      - targets: ["127.0.0.1:8082"]
+PROM
 
 # The + prefix runs the pre-start step with full privileges so it can read the secrets and
 # write /etc while the service itself stays unprivileged.
@@ -163,11 +227,13 @@ Group=65532
 ExecStartPre=+/usr/local/lib/reaper-tunnel/render-env.sh
 EnvironmentFile=/etc/reaper-tunnel.env
 ExecStart=/usr/local/bin/reaper-tunnel
+StandardOutput=append:/var/log/reaper-tunnel/server.log
+StandardError=append:/var/log/reaper-tunnel/server.log
 Restart=always
 RestartSec=2
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/reaper-tunnel
+ReadWritePaths=/var/lib/reaper-tunnel /var/log/reaper-tunnel
 PrivateTmp=true
 
 [Install]
@@ -192,7 +258,7 @@ RestartSec=5
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/caddy
+ReadWritePaths=/var/lib/caddy /var/log/caddy
 PrivateTmp=true
 
 [Install]
@@ -226,3 +292,4 @@ systemctl daemon-reload
 systemctl enable --now reaper-tunnel.service
 systemctl enable --now caddy.service
 systemctl enable --now reaper-tunnel-update.timer
+systemctl enable --now amazon-cloudwatch-agent.service

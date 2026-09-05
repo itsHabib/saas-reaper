@@ -26,11 +26,12 @@ type Router interface {
 
 // Proxy serves every claimed subdomain beneath one tunnel domain.
 type Proxy struct {
-	domain  string
-	router  Router
-	proxy   *httputil.ReverseProxy
-	logger  *slog.Logger
-	forward string
+	domain   string
+	router   Router
+	proxy    *httputil.ReverseProxy
+	logger   *slog.Logger
+	forward  string
+	observer Observer
 }
 
 // route is what one request resolved to; it rides the request context from ServeHTTP to the
@@ -44,9 +45,10 @@ type routeKey struct{}
 
 // New validates the edge. forwardProto is the scheme visitors used to reach this edge, which
 // a TLS-terminating front such as Caddy already reports and a bare deployment must declare.
-func New(domain string, router Router, forwardProto string, headerTimeout time.Duration, logger *slog.Logger) (*Proxy, error) {
-	if strings.TrimSpace(domain) == "" || router == nil || logger == nil {
-		return nil, errors.New("tunnel domain, router, and logger are required")
+// observer receives every request outcome; pass NoObserver to record nothing.
+func New(domain string, router Router, forwardProto string, headerTimeout time.Duration, observer Observer, logger *slog.Logger) (*Proxy, error) {
+	if strings.TrimSpace(domain) == "" || router == nil || observer == nil || logger == nil {
+		return nil, errors.New("tunnel domain, router, observer, and logger are required")
 	}
 	if forwardProto != "http" && forwardProto != "https" {
 		return nil, errors.New("forwarded protocol must be http or https")
@@ -54,7 +56,7 @@ func New(domain string, router Router, forwardProto string, headerTimeout time.D
 	if headerTimeout <= 0 {
 		return nil, errors.New("response header timeout must be positive")
 	}
-	p := &Proxy{domain: strings.ToLower(domain), router: router, logger: logger, forward: forwardProto}
+	p := &Proxy{domain: strings.ToLower(domain), router: router, logger: logger, forward: forwardProto, observer: observer}
 	p.proxy = &httputil.ReverseProxy{
 		Rewrite:       p.rewrite,
 		Transport:     p.transport(headerTimeout),
@@ -67,19 +69,50 @@ func New(domain string, router Router, forwardProto string, headerTimeout time.D
 
 // ServeHTTP refuses any host that does not name exactly one live tunnel. A claimed-but-offline
 // subdomain and an unclaimed one answer identically so the edge never reveals which names exist.
+// Every outcome, refused or proxied, is observed once and logged once.
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
+	recorded := &recorder{ResponseWriter: w}
+	subdomain := p.serve(recorded, r)
+	observation := Observation{
+		Subdomain: subdomain,
+		Method:    r.Method,
+		Status:    recorded.status,
+		Bytes:     recorded.bytes,
+		Duration:  time.Since(started),
+		Upgraded:  recorded.upgraded,
+		Peer:      r.RemoteAddr,
+	}
+	p.observer.Request(observation)
+	p.logger.Info("edge request",
+		"subdomain", subdomain,
+		"host", r.Host,
+		"method", r.Method,
+		"path", r.URL.Path,
+		"status", observation.Status,
+		"bytes", observation.Bytes,
+		"duration", observation.Duration,
+		"upgraded", observation.Upgraded,
+		"peer", observation.Peer,
+	)
+}
+
+// serve answers one request and returns the subdomain it named, or nothing when the host
+// resolved to no tunnel.
+func (p *Proxy) serve(w http.ResponseWriter, r *http.Request) string {
 	subdomain, ok := tunnel.HostSubdomain(r.Host, p.domain)
 	if !ok {
 		refuse(w, http.StatusNotFound, "no tunnel is served at this host")
-		return
+		return ""
 	}
 	link, ok := p.router.Lookup(subdomain)
 	if !ok {
 		refuse(w, http.StatusBadGateway, "no agent is connected for this host")
-		return
+		return subdomain
 	}
 	resolved := route{subdomain: subdomain, link: link}
 	p.proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), routeKey{}, resolved)))
+	return subdomain
 }
 
 // rewrite keeps the visitor's Host so the agent can route on it, and stamps the forwarded
@@ -117,19 +150,21 @@ func trustedForwardedFor(in *http.Request) []string {
 // request meant for its successor. Streams are cheap; the trade is deliberate.
 func (p *Proxy) transport(headerTimeout time.Duration) http.RoundTripper {
 	return &http.Transport{
-		DialContext:           dialRoute,
+		DialContext:           p.dialRoute,
 		DisableKeepAlives:     true,
 		ResponseHeaderTimeout: headerTimeout,
 		ExpectContinueTimeout: time.Second,
 	}
 }
 
-func dialRoute(ctx context.Context, _, _ string) (net.Conn, error) {
+func (p *Proxy) dialRoute(ctx context.Context, _, _ string) (net.Conn, error) {
 	resolved, ok := ctx.Value(routeKey{}).(route)
 	if !ok {
 		return nil, errors.New("edge: request carries no tunnel route")
 	}
+	started := time.Now()
 	conn, err := resolved.link.Open(ctx)
+	p.observer.StreamOpen(StreamOpen{Subdomain: resolved.subdomain, Duration: time.Since(started), Err: err})
 	if err != nil {
 		return nil, fmt.Errorf("open tunnel stream: %w", err)
 	}
