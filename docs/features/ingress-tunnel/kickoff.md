@@ -51,18 +51,34 @@ and never applied by any proof. Nothing in `make tunnel-proof` needs an account.
   and agents reconnect. Claims and audit are the only durable state.
 - **Lifecycle is one table.** `tunnel.Transition` is total over status and event; the
   exhaustive walk pins 3 statuses and 9 edges. Small on purpose, and honest about it.
+- **One lock, audit first.** The first review found that an unserialized attach and revoke
+  could leave a revoked claim live, and that supersession closed the incumbent before its
+  audit committed. The service now sequences every status change under one mutex and commits
+  the audit before the routing table moves; a failed write evicts nobody and records nothing.
+- **Links are owned, not borrowed.** An upgraded connection is hijacked from net/http, so the
+  request context never ends and `Server.Shutdown` never waits. The accept handler tracks
+  every link and ends them all, with status `1001`, before the store closes.
+- **Reserved labels are a claim-time rule only.** The edge applies grammar and the routing
+  table, so a reservation added after a claim cannot silently shadow a live tunnel.
 
 ## The deployment pack
 
-`deploy/aws/` builds the server on the operator's machine, ships it through a private bucket,
-and boots one small instance (t4g.nano by default) behind an Elastic IP. Route 53 gets apex and
-wildcard A records. Caddy, downloaded with the route53 DNS module, obtains a wildcard
-certificate through DNS-01 using the instance role and renews it. Both Go listeners bind
-loopback; the security group opens 80 and 443 only.
+`deploy/aws/` builds the server and a pinned Caddy (with the route53 module, via xcaddy) on the
+operator's machine, ships both through a private bucket, mints both API tokens, and boots one
+small instance (t4g.nano by default) behind an Elastic IP with the claims database on its own
+encrypted volume. Route 53 gets apex and wildcard A records. Caddy obtains a wildcard
+certificate through DNS-01 using the instance role and renews it. The control plane is on
+8443 and the edge on 443 so `control_cidrs` (your machines) and `edge_cidrs` (visitors) can be
+gated separately by the security group; nothing listens on 80. A code change re-ships a
+binary that a five-minute timer installs; it never replaces the instance, and a newer AMI
+never replaces it on its own.
 
-Not in the pack, and said so in its README: visitor authentication in front of the edge, more
-than one host, and secret lifecycle. Visitor identity is the seam a fork adds around
-`edge.Proxy`; it is the one thing a hosted tunnel sells that the specimen leaves for the fork.
+## Identity ladder
+
+1. Perimeter: `control_cidrs` is "register your IP" for a team. Shipped.
+2. Per-claim source addresses in the server, refused at connect time. Next, small.
+3. OIDC (Okta or any provider) in front of visitor traffic and the management API, around
+   `edge.Proxy`. Later, and the one thing a hosted tunnel sells that the fork adds.
 
 ## Cross-specimen proof (deferred)
 

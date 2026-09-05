@@ -17,7 +17,7 @@ func TestHostSubdomainResolvesExactlyOneLabel(t *testing.T) {
 		{"acme.example.com", "", false},
 		{"acmetunnel.example.com", "", false},
 		{"", "", false},
-		{"www.tunnel.example.com", "", false},
+		{"www.tunnel.example.com", "www", true},
 		{"-acme.tunnel.example.com", "", false},
 		{"acme.tunnel.example.com.evil.net", "", false},
 	}

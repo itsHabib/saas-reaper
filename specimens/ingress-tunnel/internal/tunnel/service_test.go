@@ -241,6 +241,29 @@ func TestAttachRollsBackWhenTheAuditCannotBeWritten(t *testing.T) {
 	}
 }
 
+func TestAFailedAuditNeverEvictsTheIncumbent(t *testing.T) {
+	store := newMemoryStore()
+	service, registry := newTestService(t, store)
+	issued, err := service.Claim(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	incumbent := &fakeLink{name: "incumbent"}
+	if _, err := service.Attach(context.Background(), issued.Claim, incumbent); err != nil {
+		t.Fatal(err)
+	}
+	store.auditErr = errors.New("disk full")
+	if _, err := service.Attach(context.Background(), issued.Claim, &fakeLink{name: "challenger"}); err == nil {
+		t.Fatal("a second attach succeeded without an audit row")
+	}
+	if incumbent.closed != 0 {
+		t.Fatal("the incumbent was superseded by an attach whose audit never committed")
+	}
+	if link, _ := registry.Lookup("acme"); link != incumbent {
+		t.Fatal("the incumbent is no longer routable")
+	}
+}
+
 func TestAttachRefusesRevokedAndReissuedClaims(t *testing.T) {
 	store := newMemoryStore()
 	service, _ := newTestService(t, store)

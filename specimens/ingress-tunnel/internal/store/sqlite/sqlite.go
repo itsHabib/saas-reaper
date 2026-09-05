@@ -18,6 +18,10 @@ type Store struct {
 	db *sql.DB
 }
 
+// timeLayout is fixed width, unlike RFC3339Nano, so the text a claim's created_at is stored as
+// sorts the way the instants do.
+const timeLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
 var schema = []string{
 	`CREATE TABLE IF NOT EXISTS claims (
 		subdomain TEXT PRIMARY KEY,

@@ -86,9 +86,11 @@ purest case of the selection rule: the product is a persistent connection, a
 multiplexer, and a host-based router, priced per seat, while the thing actually
 being sold is the prerequisite of a public address, wildcard DNS, and a
 certificate. The specimen ships that prerequisite as an AWS Terraform pack that
-cross-compiles the server, stands up one small host behind an Elastic IP, writes
-the apex and wildcard records, and lets Caddy obtain and renew a wildcard
-certificate through Route 53. One apply, one claim per developer, one static
+builds the server and a pinned Caddy on your machine, stands up one small host
+behind an Elastic IP with the claims database on its own volume, writes the apex
+and wildcard records, mints both API tokens, lets Caddy obtain and renew a
+wildcard certificate through Route 53, and gates the control port and the edge
+port with separate allowlists. One apply, one claim per developer, one static
 agent binary. The independent nested Go module keeps the capability adjacent to
 the future factory source without pretending the factory supports it
 today—`validate.go` still rejects every capability except `feature-flags`.

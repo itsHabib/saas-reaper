@@ -46,21 +46,31 @@ var reservedSubdomains = map[string]bool{
 	"api":     true,
 }
 
-// ValidateSubdomain accepts exactly one lowercase DNS label with no leading or trailing hyphen.
+// ValidateSubdomain accepts exactly one lowercase DNS label with no leading or trailing hyphen
+// that is not reserved for the control plane. Reservation is a claim-time rule only.
 func ValidateSubdomain(subdomain string) error {
-	if subdomain == "" || len(subdomain) > maxLabelLength {
-		return fmt.Errorf("%w: subdomain must be 1 to %d characters", ErrInvalid, maxLabelLength)
-	}
-	if strings.HasPrefix(subdomain, "-") || strings.HasSuffix(subdomain, "-") {
-		return fmt.Errorf("%w: subdomain must not start or end with a hyphen", ErrInvalid)
-	}
-	for _, r := range subdomain {
-		if !labelRune(r) {
-			return fmt.Errorf("%w: subdomain may contain only lowercase letters, digits, and hyphens", ErrInvalid)
-		}
+	if err := validateLabel(subdomain); err != nil {
+		return err
 	}
 	if reservedSubdomains[subdomain] {
 		return fmt.Errorf("%w: subdomain %q is reserved", ErrInvalid, subdomain)
+	}
+	return nil
+}
+
+// validateLabel is the grammar alone: one to 63 lowercase letters, digits, or hyphens with no
+// hyphen at either end.
+func validateLabel(label string) error {
+	if label == "" || len(label) > maxLabelLength {
+		return fmt.Errorf("%w: subdomain must be 1 to %d characters", ErrInvalid, maxLabelLength)
+	}
+	if strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+		return fmt.Errorf("%w: subdomain must not start or end with a hyphen", ErrInvalid)
+	}
+	for _, r := range label {
+		if !labelRune(r) {
+			return fmt.Errorf("%w: subdomain may contain only lowercase letters, digits, and hyphens", ErrInvalid)
+		}
 	}
 	return nil
 }

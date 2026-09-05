@@ -4,22 +4,8 @@ set -euo pipefail
 specimen_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$specimen_dir"
 
-source_globs=(-g '*.go' -g '!**/vendor/**')
-
-banned='^(model|models|type|types|util|utils|helper|helpers|common|misc|service|manager)\.go$'
-while IFS= read -r file; do
-  base=${file##*/}
-  if [[ "$base" =~ $banned ]]; then
-    echo "vague source filename: $file" >&2
-    exit 1
-  fi
-done < <(rg --files "${source_globs[@]}")
-
-if rg -n '\belse\b' "${source_globs[@]}" .; then
-  echo "line-of-sight violation: use a guard clause instead of else" >&2
-  exit 1
-fi
-
+# Vague filenames and line-of-sight are enforced repo-wide by the root scripts/check-boundaries.sh;
+# this script owns only the specimen's own layering rules.
 module=github.com/itsHabib/saas-reaper/specimens/ingress-tunnel/internal
 if rg -n -g '!**/*_test.go' "$module/(api|edge|link|agent|store)" internal/tunnel; then
   echo "policy boundary violation: internal/tunnel imports a transport or mechanism" >&2

@@ -31,11 +31,11 @@ type attachment struct {
 }
 
 // Registry is the in-memory routing table from subdomain to the one live link that serves it.
-// Presence is volatile by nature: a restart empties the table and agents reconnect.
+// Presence is volatile by nature: a restart empties the table and agents reconnect. The table
+// does not decide anything; the Service sequences its mutations under its own lock.
 type Registry struct {
-	mu         sync.Mutex
-	live       map[string]attachment
-	generation uint64
+	mu   sync.Mutex
+	live map[string]attachment
 }
 
 // NewRegistry constructs an empty routing table.
@@ -43,19 +43,18 @@ func NewRegistry() *Registry {
 	return &Registry{live: map[string]attachment{}}
 }
 
-// Attach installs link as the sole server of subdomain and returns its generation. When an
+// Attach installs link as the sole server of subdomain under the caller's generation. When an
 // earlier link was attached it is returned so the caller can close it; the earlier link's later
 // loss report is ignored because its generation no longer matches.
-func (r *Registry) Attach(subdomain string, link Link) (uint64, Link) {
+func (r *Registry) Attach(subdomain string, link Link, generation uint64) Link {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.generation++
 	previous, had := r.live[subdomain]
-	r.live[subdomain] = attachment{link: link, generation: r.generation}
+	r.live[subdomain] = attachment{link: link, generation: generation}
 	if !had {
-		return r.generation, nil
+		return nil
 	}
-	return r.generation, previous.link
+	return previous.link
 }
 
 // Detach removes the attachment only when generation still identifies it. It reports whether
@@ -100,4 +99,15 @@ func (r *Registry) Presence(subdomain string) Presence {
 		return PresenceLive
 	}
 	return PresenceAbsent
+}
+
+// Live returns one consistent snapshot of every subdomain with a link.
+func (r *Registry) Live() map[string]struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	live := make(map[string]struct{}, len(r.live))
+	for subdomain := range r.live {
+		live[subdomain] = struct{}{}
+	}
+	return live
 }

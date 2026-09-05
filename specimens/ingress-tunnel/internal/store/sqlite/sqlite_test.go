@@ -110,6 +110,34 @@ func assertRevokeAudit(t *testing.T, store *Store) {
 	}
 }
 
+func TestListClaimsOrdersSubSecondCreationsChronologically(t *testing.T) {
+	store := openTest(t, filepath.Join(t.TempDir(), "tunnel.db"))
+	ctx := context.Background()
+	base := time.Date(2026, 9, 4, 10, 0, 8, 0, time.UTC)
+	// RFC3339Nano would render these as 08Z, 08.2Z, and 08.12Z, whose byte order is not their
+	// time order; the fixed-width layout keeps them chronological.
+	creations := []struct {
+		subdomain string
+		at        time.Time
+	}{
+		{"zulu", base},
+		{"yankee", base.Add(120 * time.Millisecond)},
+		{"xray", base.Add(200 * time.Millisecond)},
+	}
+	for _, creation := range creations {
+		if err := store.InsertClaim(ctx, claimAt(creation.subdomain, "hash-"+creation.subdomain, creation.at), entry(creation.subdomain, tunnel.AuditClaimed, creation.at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claims, err := store.ListClaims(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claims) != 3 || claims[0].Subdomain != "zulu" || claims[1].Subdomain != "yankee" || claims[2].Subdomain != "xray" {
+		t.Fatalf("claims are not in creation order: %+v", claims)
+	}
+}
+
 func TestClaimsAndAuditSurviveReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tunnel.db")
 	ctx := context.Background()

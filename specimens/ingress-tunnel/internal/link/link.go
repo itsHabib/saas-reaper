@@ -29,6 +29,11 @@ const (
 	statusRevoked    websocket.StatusCode = 4003
 )
 
+// farewellGrace bounds how long an eviction waits for the agent to acknowledge the close frame
+// before the socket is cut. A healthy agent answers in milliseconds; a wedged one is not
+// allowed to keep its streams alive behind a handshake it will never finish.
+const farewellGrace = 2 * time.Second
+
 // Config tunes liveness detection for both ends of a link.
 type Config struct {
 	KeepAliveInterval time.Duration
@@ -56,8 +61,111 @@ func (c Config) yamux() *yamux.Config {
 	return configuration
 }
 
+// Session is the server end of one attached agent link. It satisfies tunnel.Link.
+type Session struct {
+	socket *websocket.Conn
+	mux    *yamux.Session
+	closed atomic.Bool
+}
+
+// Open starts one fresh stream to the agent for one request. yamux's open has no context of
+// its own, so the wait is raced against ctx; a stream that arrives after the caller gave up is
+// closed rather than leaked.
+func (s *Session) Open(ctx context.Context) (net.Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.closed.Load() {
+		return nil, errors.New("link is closed")
+	}
+	type opened struct {
+		stream net.Conn
+		err    error
+	}
+	result := make(chan opened, 1)
+	go func() {
+		stream, err := s.mux.Open()
+		result <- opened{stream: stream, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		go func() {
+			if late := <-result; late.err == nil {
+				_ = late.stream.Close()
+			}
+		}()
+		return nil, ctx.Err()
+	case ready := <-result:
+		if ready.err != nil {
+			return nil, ready.err
+		}
+		return ready.stream, nil
+	}
+}
+
+// Close refuses new streams at once and tells the agent why in the background. The close
+// frame goes out before the multiplexer is torn down so the reason reaches the agent; the
+// handshake is given farewellGrace and then the socket is cut, so policy never blocks and a
+// wedged peer cannot hold its streams open. Done fires once the multiplexer is closed.
+func (s *Session) Close(reason tunnel.CloseReason) error {
+	if s.closed.Swap(true) {
+		return nil
+	}
+	go s.farewell(reason)
+	return nil
+}
+
+func (s *Session) farewell(reason tunnel.CloseReason) {
+	acknowledged := make(chan struct{})
+	go func() {
+		defer close(acknowledged)
+		_ = s.socket.Close(closeStatus(reason), string(reason))
+	}()
+	select {
+	case <-acknowledged:
+	case <-time.After(farewellGrace):
+	}
+	_ = s.socket.CloseNow()
+	_ = s.mux.Close()
+}
+
+// Done closes when the link has ended for any reason, including a missed keep-alive.
+func (s *Session) Done() <-chan struct{} {
+	return s.mux.CloseChan()
+}
+
+func newSession(socket *websocket.Conn, conn net.Conn, configuration Config) (*Session, error) {
+	mux, err := yamux.Client(conn, configuration.yamux())
+	if err != nil {
+		return nil, err
+	}
+	return &Session{socket: socket, mux: mux}, nil
+}
+
+func closeStatus(reason tunnel.CloseReason) websocket.StatusCode {
+	switch reason {
+	case tunnel.CloseSuperseded:
+		return statusSuperseded
+	case tunnel.CloseRevoked:
+		return statusRevoked
+	}
+	return websocket.StatusGoingAway
+}
+
+// EvictedError is reported by the agent-side listener when the server ended the link on purpose.
+type EvictedError struct {
+	Reason tunnel.CloseReason
+}
+
+func (e EvictedError) Error() string {
+	return fmt.Sprintf("the server evicted this agent: %s", e.Reason)
+}
+
+// Permanent reports that reconnecting with the same credential is pointless or harmful.
+func (EvictedError) Permanent() bool { return true }
+
 // observedConn hands yamux the WebSocket as a net.Conn and remembers the first read failure,
-// which is where a peer's close status arrives.
+// which is where the server's close status arrives on the agent side.
 type observedConn struct {
 	net.Conn
 	mu      sync.Mutex
@@ -83,80 +191,6 @@ func (o *observedConn) closeStatus() websocket.StatusCode {
 	return websocket.CloseStatus(o.readErr)
 }
 
-// Session is the server end of one attached agent link. It satisfies tunnel.Link.
-type Session struct {
-	socket *websocket.Conn
-	mux    *yamux.Session
-	closed atomic.Bool
-}
-
-// Open starts one fresh stream to the agent for one request.
-func (s *Session) Open(ctx context.Context) (net.Conn, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if s.closed.Load() {
-		return nil, errors.New("link is closed")
-	}
-	stream, err := s.mux.Open()
-	if err != nil {
-		return nil, err
-	}
-	return stream, nil
-}
-
-// Close refuses new streams at once and tells the agent why in the background. The close
-// frame goes out before the multiplexer is torn down so the reason reaches the agent, and the
-// handshake may wait on a dead peer, so policy never blocks behind it.
-func (s *Session) Close(reason tunnel.CloseReason) error {
-	if s.closed.Swap(true) {
-		return nil
-	}
-	go s.farewell(reason)
-	return nil
-}
-
-func (s *Session) farewell(reason tunnel.CloseReason) {
-	_ = s.socket.Close(closeStatus(reason), string(reason))
-	_ = s.socket.CloseNow()
-	_ = s.mux.Close()
-}
-
-// Done closes when the link has ended for any reason, including a missed keep-alive.
-func (s *Session) Done() <-chan struct{} {
-	return s.mux.CloseChan()
-}
-
-func newSession(socket *websocket.Conn, conn net.Conn, configuration Config) (*Session, error) {
-	mux, err := yamux.Client(&observedConn{Conn: conn}, configuration.yamux())
-	if err != nil {
-		return nil, err
-	}
-	return &Session{socket: socket, mux: mux}, nil
-}
-
-func closeStatus(reason tunnel.CloseReason) websocket.StatusCode {
-	switch reason {
-	case tunnel.CloseSuperseded:
-		return statusSuperseded
-	case tunnel.CloseRevoked:
-		return statusRevoked
-	}
-	return websocket.StatusGoingAway
-}
-
-// EvictedError is returned by the agent-side listener when the server ended the link on purpose.
-type EvictedError struct {
-	Reason tunnel.CloseReason
-}
-
-func (e EvictedError) Error() string {
-	return fmt.Sprintf("the server evicted this agent: %s", e.Reason)
-}
-
-// Permanent reports that reconnecting with the same credential is pointless or harmful.
-func (EvictedError) Permanent() bool { return true }
-
 // Listener is the agent end: every accepted connection is one request from the edge.
 type Listener struct {
 	socket *websocket.Conn
@@ -164,20 +198,21 @@ type Listener struct {
 	mux    *yamux.Session
 }
 
-// Accept waits for the next request stream. When the server evicted the agent, the error is an
-// EvictedError carrying the reason; any other failure is a lost link.
+// Accept waits for the next request stream.
 func (l *Listener) Accept() (net.Conn, error) {
-	conn, err := l.mux.Accept()
-	if err == nil {
-		return conn, nil
-	}
+	return l.mux.Accept()
+}
+
+// Reason reports why the link ended once it has: an EvictedError when the server ended it on
+// purpose, nil for any other loss. Before the link ends it is nil.
+func (l *Listener) Reason() error {
 	switch l.conn.closeStatus() {
 	case statusSuperseded:
-		return nil, EvictedError{Reason: tunnel.CloseSuperseded}
+		return EvictedError{Reason: tunnel.CloseSuperseded}
 	case statusRevoked:
-		return nil, EvictedError{Reason: tunnel.CloseRevoked}
+		return EvictedError{Reason: tunnel.CloseRevoked}
 	}
-	return nil, err
+	return nil
 }
 
 // Close ends the link.

@@ -59,8 +59,9 @@ runnable proofs and a validated deployment pack.
 - Verified: nested `make check`, `make demo`, `make invariants`, and `make deploy-check` pass locally.
 - Verified: the exhaustive lifecycle walk pins 3 reachable statuses and 9 edges, and a revoked claim never carries a live link.
 - Verified: the superseded agent exits on WebSocket status 4001 instead of reconnecting, and the revoked one on 4003.
+- Reviewed: a ten-finding local review found two ordering races in policy, an unreachable shutdown path, a vacuous harness assertion, and an instance-replacing digest in the pack; all were fixed with regression tests or harness assertions.
 
 ## Handoff
 
-- Last: specimen, proofs, pack, and root wiring implemented; root floor run.
-- Next: open the pull request, gather the review roster, fold verified findings within two rounds, and stop at a reviewed green head.
+- Last: first review round folded; the pack now mints tokens, gates control and edge ports separately, keeps state on its own volume, and pins Caddy.
+- Next: CI green on the reviewed head, one more review round at most, then stop without Gate or merge.

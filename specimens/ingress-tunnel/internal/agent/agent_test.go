@@ -21,9 +21,18 @@ type scriptedDialer struct {
 	outcomes  []error
 	listeners chan net.Listener
 	dials     int
+	reason    error
 }
 
-func (d *scriptedDialer) Dial(context.Context) (net.Listener, error) {
+// plainListener is a TCP listener that reports the dialer's scripted reason once closed.
+type plainListener struct {
+	net.Listener
+	reason error
+}
+
+func (p plainListener) Reason() error { return p.reason }
+
+func (d *scriptedDialer) Dial(context.Context) (Listener, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.dials++
@@ -39,7 +48,7 @@ func (d *scriptedDialer) Dial(context.Context) (net.Listener, error) {
 		return nil, err
 	}
 	d.listeners <- listener
-	return listener, nil
+	return plainListener{Listener: listener, reason: d.reason}, nil
 }
 
 type recordingWaiter struct {
@@ -189,6 +198,23 @@ func TestAPermanentRefusalEndsTheAgent(t *testing.T) {
 	}
 	if dialer.dials != 1 {
 		t.Fatalf("dials = %d after a permanent refusal", dialer.dials)
+	}
+}
+
+func TestAnEvictionEndsTheAgentAfterServing(t *testing.T) {
+	dialer := &scriptedDialer{listeners: make(chan net.Listener, 1), reason: refusal{permanent: true}}
+	a := newAgent(t, dialer, "http://127.0.0.1:1", &recordingWaiter{})
+	done := make(chan error, 1)
+	go func() { done <- a.Run(context.Background()) }()
+	listener := <-dialer.listeners
+	_ = listener.Close()
+	err := <-done
+	var refused refusal
+	if !errors.As(err, &refused) {
+		t.Fatalf("run after eviction = %v, want the eviction", err)
+	}
+	if dialer.dials != 1 {
+		t.Fatalf("dials = %d after an eviction", dialer.dials)
 	}
 }
 

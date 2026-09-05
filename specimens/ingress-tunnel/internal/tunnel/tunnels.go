@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,14 +22,18 @@ type Store interface {
 	ListClaims(context.Context) ([]Claim, error)
 }
 
-// Service composes the store and the routing table under the lifecycle table.
+// Service composes the store and the routing table under the lifecycle table. One mutex
+// sequences every status change, so the durable claim and the volatile presence are always
+// read and changed as a pair and the audit describes exactly the transition that happened.
 type Service struct {
-	store    Store
-	registry *Registry
-	actor    string
-	now      func() time.Time
-	random   io.Reader
-	logger   *slog.Logger
+	mu         sync.Mutex
+	generation uint64
+	store      Store
+	registry   *Registry
+	actor      string
+	now        func() time.Time
+	random     io.Reader
+	logger     *slog.Logger
 }
 
 // NewService validates the composition. actor is the authenticated management principal.
@@ -61,7 +66,7 @@ func (s *Service) Claim(ctx context.Context, subdomain string) (Issued, error) {
 	claim := Claim{Subdomain: subdomain, TokenHash: HashToken(token), Revision: 1, CreatedAt: now}
 	entry := AuditEntry{At: now, Subdomain: subdomain, Kind: AuditClaimed, Actor: s.actor, Detail: "revision 1"}
 	if err := s.store.InsertClaim(ctx, claim, entry); err != nil {
-		return Issued{}, err
+		return Issued{}, fmt.Errorf("claim %s: %w", subdomain, err)
 	}
 	return Issued{Claim: claim, Token: token}, nil
 }
@@ -69,9 +74,11 @@ func (s *Service) Claim(ctx context.Context, subdomain string) (Issued, error) {
 // Revoke withdraws a claim's credential, closes its live link if any, and records both in the
 // same transaction as the revision change.
 func (s *Service) Revoke(ctx context.Context, subdomain string, expectedRevision int) (Claim, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	claim, err := s.store.ClaimBySubdomain(ctx, subdomain)
 	if err != nil {
-		return Claim{}, err
+		return Claim{}, fmt.Errorf("revoke %s: %w", subdomain, err)
 	}
 	if claim.Revision != expectedRevision {
 		return Claim{}, fmt.Errorf("%w: expected revision %d, current revision is %d", ErrConflict, expectedRevision, claim.Revision)
@@ -84,7 +91,7 @@ func (s *Service) Revoke(ctx context.Context, subdomain string, expectedRevision
 	entries := s.entries(outcome.Audit, subdomain, now, s.actor, fmt.Sprintf("revision %d", claim.Revision+1))
 	revoked, err := s.store.RevokeClaim(ctx, subdomain, expectedRevision, now, entries)
 	if err != nil {
-		return Claim{}, err
+		return Claim{}, fmt.Errorf("revoke %s: %w", subdomain, err)
 	}
 	link, had := s.registry.Evict(subdomain)
 	if had {
@@ -103,7 +110,7 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Claim, error)
 		return Claim{}, fmt.Errorf("%w: unknown agent token", ErrUnauthorized)
 	}
 	if err != nil {
-		return Claim{}, err
+		return Claim{}, fmt.Errorf("authenticate agent: %w", err)
 	}
 	if claim.Revoked {
 		return Claim{}, fmt.Errorf("%w: agent token was revoked", ErrUnauthorized)
@@ -118,15 +125,19 @@ type Connection struct {
 	service    *Service
 }
 
-// Attach installs link as the server of claim's subdomain. The claim is re-read so a revocation
-// that raced the upgrade is honored, and an earlier link is superseded and closed.
+// Attach installs link as the server of claim's subdomain. Under the lock the claim is re-read,
+// so a revocation that raced the upgrade is honored; the audit is committed before the routing
+// table changes, so a failed write evicts nobody and records nothing; and only then is an
+// earlier link superseded and closed.
 func (s *Service) Attach(ctx context.Context, claim Claim, link Link) (Connection, error) {
 	if link == nil {
 		return Connection{}, errors.New("link is required")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	current, err := s.store.ClaimBySubdomain(ctx, claim.Subdomain)
 	if err != nil {
-		return Connection{}, err
+		return Connection{}, fmt.Errorf("attach %s: %w", claim.Subdomain, err)
 	}
 	if current.TokenHash != claim.TokenHash {
 		return Connection{}, fmt.Errorf("%w: claim was reissued", ErrUnauthorized)
@@ -135,30 +146,37 @@ func (s *Service) Attach(ctx context.Context, claim Claim, link Link) (Connectio
 	if outcome.Err != nil {
 		return Connection{}, outcome.Err
 	}
-	generation, previous := s.registry.Attach(claim.Subdomain, link)
-	if previous != nil {
-		s.closeLink(previous, claim.Subdomain, CloseSuperseded)
-	}
+	generation := s.generation + 1
 	entries := s.entries(outcome.Audit, claim.Subdomain, s.now().UTC(), AgentActor(claim.Subdomain), fmt.Sprintf("generation %d", generation))
 	if err := s.store.AppendAudit(ctx, entries); err != nil {
-		s.registry.Detach(claim.Subdomain, generation)
-		return Connection{}, err
+		return Connection{}, fmt.Errorf("attach %s: %w", claim.Subdomain, err)
+	}
+	s.generation = generation
+	previous := s.registry.Attach(claim.Subdomain, link, generation)
+	if previous != nil {
+		s.closeLink(previous, claim.Subdomain, CloseSuperseded)
 	}
 	return Connection{Subdomain: claim.Subdomain, generation: generation, service: s}, nil
 }
 
-// Lost records that this connection's link ended. A superseded connection's loss is ignored
-// because a newer generation now serves the subdomain.
+// Lost records that this connection's link ended. A superseded or evicted connection's loss is
+// ignored because the table no longer holds its generation.
 func (c Connection) Lost(ctx context.Context) error {
 	if c.service == nil {
 		return nil
 	}
-	if !c.service.registry.Detach(c.Subdomain, c.generation) {
+	s := c.service
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.registry.Detach(c.Subdomain, c.generation) {
 		return nil
 	}
 	outcome := Transition(Status{Claim: ClaimActive, Presence: PresenceLive}, EventLinkLost)
-	entries := c.service.entries(outcome.Audit, c.Subdomain, c.service.now().UTC(), AgentActor(c.Subdomain), fmt.Sprintf("generation %d", c.generation))
-	return c.service.store.AppendAudit(ctx, entries)
+	entries := s.entries(outcome.Audit, c.Subdomain, s.now().UTC(), AgentActor(c.Subdomain), fmt.Sprintf("generation %d", c.generation))
+	if err := s.store.AppendAudit(ctx, entries); err != nil {
+		return fmt.Errorf("record disconnect %s: %w", c.Subdomain, err)
+	}
+	return nil
 }
 
 // View is one tunnel as the read plane sees it: durable claim state joined with presence.
@@ -175,15 +193,20 @@ type View struct {
 func (s *Service) Tunnels(ctx context.Context) ([]View, error) {
 	claims, err := s.store.ListClaims(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list tunnels: %w", err)
 	}
+	live := s.registry.Live()
 	views := make([]View, 0, len(claims))
 	for _, claim := range claims {
+		presence := PresenceAbsent
+		if _, ok := live[claim.Subdomain]; ok {
+			presence = PresenceLive
+		}
 		views = append(views, View{
 			Subdomain: claim.Subdomain,
 			Revision:  claim.Revision,
 			State:     claim.State(),
-			Presence:  s.registry.Presence(claim.Subdomain),
+			Presence:  presence,
 			CreatedAt: claim.CreatedAt,
 			RevokedAt: claim.RevokedAt,
 		})

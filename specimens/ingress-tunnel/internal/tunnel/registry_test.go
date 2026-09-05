@@ -23,21 +23,19 @@ func TestRegistrySupersedesAndIgnoresStaleDetach(t *testing.T) {
 	registry := NewRegistry()
 	first := &fakeLink{name: "first"}
 	second := &fakeLink{name: "second"}
-	firstGeneration, previous := registry.Attach("acme", first)
-	if previous != nil {
+	if previous := registry.Attach("acme", first, 1); previous != nil {
 		t.Fatal("first attach reported a previous link")
 	}
-	secondGeneration, previous := registry.Attach("acme", second)
-	if previous != first || secondGeneration <= firstGeneration {
-		t.Fatalf("second attach returned previous=%v generation=%d", previous, secondGeneration)
+	if previous := registry.Attach("acme", second, 2); previous != first {
+		t.Fatalf("second attach returned previous=%v", previous)
 	}
-	if registry.Detach("acme", firstGeneration) {
+	if registry.Detach("acme", 1) {
 		t.Fatal("stale generation detached the live link")
 	}
 	if link, ok := registry.Lookup("acme"); !ok || link != second {
 		t.Fatalf("lookup after stale detach = %v,%t want second", link, ok)
 	}
-	if !registry.Detach("acme", secondGeneration) {
+	if !registry.Detach("acme", 2) {
 		t.Fatal("current generation failed to detach")
 	}
 	if registry.Presence("acme") != PresenceAbsent {
@@ -51,7 +49,10 @@ func TestRegistryEvictReturnsWhateverServes(t *testing.T) {
 		t.Fatal("evicting an empty subdomain reported a link")
 	}
 	link := &fakeLink{name: "only"}
-	registry.Attach("acme", link)
+	registry.Attach("acme", link, 1)
+	if live := registry.Live(); len(live) != 1 {
+		t.Fatalf("live snapshot = %v", live)
+	}
 	evicted, ok := registry.Evict("acme")
 	if !ok || evicted != link {
 		t.Fatalf("evict = %v,%t", evicted, ok)

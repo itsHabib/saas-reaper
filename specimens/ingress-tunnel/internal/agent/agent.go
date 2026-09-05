@@ -1,6 +1,6 @@
 // Package agent is the customer-side mechanism: hold one link to the server, serve every
 // request stream into the local target, and reconnect on the policy schedule when the link is
-// lost. A refused credential ends the agent; a lost link never does.
+// lost. A refused credential or a deliberate eviction ends the agent; a lost link never does.
 package agent
 
 import (
@@ -16,9 +16,15 @@ import (
 	"github.com/itsHabib/saas-reaper/specimens/ingress-tunnel/internal/tunnel"
 )
 
-// Dialer opens one link; the returned listener yields one connection per proxied request.
+// Listener yields one connection per proxied request and, once it has ended, says why.
+type Listener interface {
+	net.Listener
+	Reason() error
+}
+
+// Dialer opens one link.
 type Dialer interface {
-	Dial(context.Context) (net.Listener, error)
+	Dial(context.Context) (Listener, error)
 }
 
 // Waiter owns the replaceable passage of reconnect time.
@@ -70,7 +76,9 @@ func New(dialer Dialer, target *url.URL, schedule tunnel.Schedule, waiter Waiter
 }
 
 // rewriteTo points each stream's request at the local target while preserving the forwarded
-// triple the edge stamped; the target sees its own host, as it would behind any local proxy.
+// triple the edge stamped. In rewrite mode the standard proxy strips those headers from the
+// outbound request before this runs, so they are copied back from the inbound one; the target
+// sees its own host, as it would behind any local proxy.
 func rewriteTo(target *url.URL) func(*httputil.ProxyRequest) {
 	return func(request *httputil.ProxyRequest) {
 		request.SetURL(target)
@@ -89,29 +97,36 @@ func rewriteTo(target *url.URL) func(*httputil.ProxyRequest) {
 func (a *Agent) Run(ctx context.Context) error {
 	failures := 0
 	for ctx.Err() == nil {
-		listener, err := a.dialer.Dial(ctx)
-		if err == nil {
-			failures = 0
-			a.logger.Info("tunnel link established")
-			if err := a.serve(ctx, listener); permanent(err) {
-				return err
-			}
-			a.logger.Warn("tunnel link lost; reconnecting")
-			failures++
-			if !a.pause(ctx, failures) {
-				return nil
-			}
-			continue
-		}
-		if permanent(err) {
+		if err := a.attempt(ctx, &failures); err != nil {
 			return err
 		}
-		failures++
-		a.logger.Warn("tunnel dial failed; retrying", "error", err, "delay", a.schedule.Delay(failures))
 		if !a.pause(ctx, failures) {
 			return nil
 		}
 	}
+	return nil
+}
+
+// attempt dials once and, on success, serves until the link ends. It returns an error only
+// when the run must stop; every other outcome counts a failure and lets the caller pause.
+func (a *Agent) attempt(ctx context.Context, failures *int) error {
+	listener, err := a.dialer.Dial(ctx)
+	if permanent(err) {
+		return err
+	}
+	if err != nil {
+		*failures++
+		a.logger.Warn("tunnel dial failed; retrying", "error", err, "delay", a.schedule.Delay(*failures))
+		return nil
+	}
+	*failures = 0
+	a.logger.Info("tunnel link established")
+	a.serve(ctx, listener)
+	if reason := listener.Reason(); permanent(reason) {
+		return reason
+	}
+	*failures++
+	a.logger.Warn("tunnel link lost; reconnecting", "delay", a.schedule.Delay(*failures))
 	return nil
 }
 
@@ -121,45 +136,29 @@ func (a *Agent) pause(ctx context.Context, failures int) bool {
 	return a.waiter.Wait(ctx, a.schedule.Delay(failures)) == nil
 }
 
-// serve answers request streams until the listener closes or the context ends. It returns the
-// listener's final error so an eviction can be told apart from a lost link.
-func (a *Agent) serve(ctx context.Context, listener net.Listener) error {
+// serve answers request streams until the listener closes or the context ends.
+func (a *Agent) serve(ctx context.Context, listener Listener) {
 	server := &http.Server{
 		Handler:           a.handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ErrorLog:          slog.NewLogLogger(a.logger.Handler(), slog.LevelWarn),
 	}
-	done := make(chan error, 1)
+	done := make(chan struct{})
 	go func() {
-		done <- server.Serve(reportingListener{Listener: listener, final: done})
+		defer close(done)
+		_ = server.Serve(listener)
 	}()
-	var err error
 	select {
-	case err = <-done:
+	case <-done:
 	case <-ctx.Done():
-		_ = listener.Close()
-		err = <-done
-	}
-	_ = server.Close()
-	return err
-}
-
-// reportingListener preserves the Accept error that ended Serve, which net/http otherwise
-// replaces with its own generic failure.
-type reportingListener struct {
-	net.Listener
-	final chan error
-}
-
-func (r reportingListener) Accept() (net.Conn, error) {
-	conn, err := r.Listener.Accept()
-	if err != nil && permanent(err) {
-		select {
-		case r.final <- err:
-		default:
+		if err := listener.Close(); err != nil {
+			a.logger.Warn("close tunnel link", "error", err)
 		}
+		<-done
 	}
-	return conn, err
+	if err := server.Close(); err != nil {
+		a.logger.Warn("close stream server", "error", err)
+	}
 }
 
 // permanent reports a refusal that retrying with the same credential can never overcome.

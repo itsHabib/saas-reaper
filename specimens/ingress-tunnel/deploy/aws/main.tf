@@ -6,15 +6,30 @@ data "aws_vpc" "default" {
 }
 
 locals {
-  vpc_id     = var.vpc_id == null ? data.aws_vpc.default[0].id : var.vpc_id
-  go_arch    = var.architecture == "x86_64" ? "amd64" : "arm64"
-  specimen   = "${path.module}/../.."
-  binary     = "${path.module}/.build/reaper-tunnel-${local.go_arch}"
-  object_key = "reaper-tunnel-${local.go_arch}"
-  source_digest = sha256(join("", concat(
-    [for file in sort(fileset(local.specimen, "{cmd,internal}/**/*.go")) : filesha256("${local.specimen}/${file}")],
+  vpc_id   = var.vpc_id == null ? data.aws_vpc.default[0].id : var.vpc_id
+  go_arch  = var.architecture == "x86_64" ? "amd64" : "arm64"
+  specimen = "${path.module}/../.."
+  build    = "${path.module}/.build"
+
+  # Only shipped source moves the server binary: tests never reach the instance.
+  server_sources = [
+    for file in sort(fileset(local.specimen, "{cmd,internal}/**/*.go")) : file
+    if !endswith(file, "_test.go")
+  ]
+  server_digest = sha256(join("", concat(
+    [for file in local.server_sources : filesha256("${local.specimen}/${file}")],
     [filesha256("${local.specimen}/go.mod"), filesha256("${local.specimen}/go.sum")],
   )))
+  caddy_digest = sha256("${var.caddy_version}|${var.caddy_route53_version}|${var.xcaddy_version}|${local.go_arch}")
+
+  server_binary = "${local.build}/reaper-tunnel-${local.go_arch}"
+  caddy_binary  = "${local.build}/caddy-${local.go_arch}"
+  server_key    = "reaper-tunnel-${local.go_arch}"
+  caddy_key     = "caddy-${local.go_arch}"
+
+  # An empty allowlist means anywhere; a supplied one becomes one rule per CIDR and nothing else.
+  control_sources = length(var.control_cidrs) > 0 ? var.control_cidrs : ["0.0.0.0/0"]
+  edge_sources    = length(var.edge_cidrs) > 0 ? var.edge_cidrs : ["0.0.0.0/0"]
 }
 
 data "aws_subnets" "chosen" {
@@ -29,6 +44,10 @@ locals {
   subnet_id = var.subnet_id == null ? sort(data.aws_subnets.chosen[0].ids)[0] : var.subnet_id
 }
 
+data "aws_subnet" "chosen" {
+  id = local.subnet_id
+}
+
 data "aws_ami" "linux" {
   most_recent = true
   owners      = ["amazon"]
@@ -38,13 +57,22 @@ data "aws_ami" "linux" {
   }
 }
 
-# The server is built here, on the machine running terraform, and shipped through a private
-# bucket. The instance never compiles anything and never fetches from a registry.
+# Both binaries are built here, on the machine running terraform, and shipped through a
+# private bucket. The instance never compiles anything and never fetches from a registry or a
+# vendor's download service; every byte it runs was pinned and built by the apply.
 resource "terraform_data" "server_binary" {
-  triggers_replace = [local.source_digest, local.go_arch]
+  triggers_replace = [local.server_digest]
   provisioner "local-exec" {
     working_dir = local.specimen
-    command     = "CGO_ENABLED=0 GOOS=linux GOARCH=${local.go_arch} go build -trimpath -o ${abspath(local.binary)} ./cmd/reaper-tunnel"
+    command     = "mkdir -p ${abspath(local.build)} && CGO_ENABLED=0 GOOS=linux GOARCH=${local.go_arch} go build -trimpath -o ${abspath(local.server_binary)} ./cmd/reaper-tunnel"
+  }
+}
+
+resource "terraform_data" "caddy_binary" {
+  triggers_replace = [local.caddy_digest]
+  provisioner "local-exec" {
+    working_dir = local.specimen
+    command     = "mkdir -p ${abspath(local.build)} && CGO_ENABLED=0 GOOS=linux GOARCH=${local.go_arch} go run github.com/caddyserver/xcaddy/cmd/xcaddy@${var.xcaddy_version} build ${var.caddy_version} --with github.com/caddy-dns/route53@${var.caddy_route53_version} --output ${abspath(local.caddy_binary)}"
   }
 }
 
@@ -63,10 +91,50 @@ resource "aws_s3_bucket_public_access_block" "artifacts" {
 
 resource "aws_s3_object" "server" {
   bucket      = aws_s3_bucket.artifacts.id
-  key         = local.object_key
-  source      = local.binary
-  source_hash = local.source_digest
+  key         = local.server_key
+  source      = local.server_binary
+  source_hash = local.server_digest
   depends_on  = [terraform_data.server_binary]
+}
+
+resource "aws_s3_object" "caddy" {
+  bucket      = aws_s3_bucket.artifacts.id
+  key         = local.caddy_key
+  source      = local.caddy_binary
+  source_hash = local.caddy_digest
+  depends_on  = [terraform_data.caddy_binary]
+}
+
+# The two API tokens are minted by the apply and kept in Secrets Manager. Rotate one with
+# `terraform apply -replace=random_password.admin_token`; the host picks it up on restart.
+resource "random_password" "admin_token" {
+  length  = 48
+  special = false
+}
+
+resource "random_password" "read_token" {
+  length  = 48
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "admin_token" {
+  name                    = "${var.name}-admin-token"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "admin_token" {
+  secret_id     = aws_secretsmanager_secret.admin_token.id
+  secret_string = random_password.admin_token.result
+}
+
+resource "aws_secretsmanager_secret" "read_token" {
+  name                    = "${var.name}-read-token"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "read_token" {
+  secret_id     = aws_secretsmanager_secret.read_token.id
+  secret_string = random_password.read_token.result
 }
 
 resource "aws_iam_role" "instance" {
@@ -90,13 +158,13 @@ resource "aws_iam_role_policy" "instance" {
         Sid      = "ReadTokens"
         Action   = ["secretsmanager:GetSecretValue"]
         Effect   = "Allow"
-        Resource = [var.admin_token_secret_arn, var.read_token_secret_arn]
+        Resource = [aws_secretsmanager_secret.admin_token.arn, aws_secretsmanager_secret.read_token.arn]
       },
       {
-        Sid      = "FetchServer"
+        Sid      = "FetchBinaries"
         Action   = ["s3:GetObject"]
         Effect   = "Allow"
-        Resource = "${aws_s3_bucket.artifacts.arn}/${local.object_key}"
+        Resource = ["${aws_s3_bucket.artifacts.arn}/${local.server_key}", "${aws_s3_bucket.artifacts.arn}/${local.caddy_key}"]
       },
       {
         Sid      = "AnswerDnsChallenges"
@@ -119,51 +187,68 @@ resource "aws_iam_instance_profile" "instance" {
   role = aws_iam_role.instance.name
 }
 
-resource "aws_security_group" "edge" {
+resource "aws_security_group" "host" {
   name        = var.name
-  description = "Public HTTPS edge for the reaper tunnel host"
+  description = "Reaper tunnel host: control on 8443 for your machines, edge on 443 for visitors"
   vpc_id      = local.vpc_id
-  ingress {
-    description = "ACME HTTP challenge fallback and redirect to HTTPS"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = var.allowed_cidrs
-  }
-  ingress {
-    description = "Agents and visitors"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = var.allowed_cidrs
-  }
-  egress {
-    description = "Certificate authority, Route 53, Secrets Manager, S3"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+}
+
+resource "aws_vpc_security_group_ingress_rule" "control" {
+  for_each          = toset(local.control_sources)
+  security_group_id = aws_security_group.host.id
+  description       = "Agents and the management API"
+  cidr_ipv4         = each.value
+  from_port         = 8443
+  to_port           = 8443
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "edge" {
+  for_each          = toset(local.edge_sources)
+  security_group_id = aws_security_group.host.id
+  description       = "Visitors reaching a claimed subdomain"
+  cidr_ipv4         = each.value
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_egress_rule" "all" {
+  security_group_id = aws_security_group.host.id
+  description       = "Certificate authority, Route 53, Secrets Manager, S3"
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+}
+
+# The claims database lives on its own volume so the instance is disposable and the state is
+# not. Replacing the instance re-attaches the same volume.
+resource "aws_ebs_volume" "state" {
+  availability_zone = data.aws_subnet.chosen.availability_zone
+  size              = var.state_volume_gib
+  type              = "gp3"
+  encrypted         = true
+  tags = {
+    Name = "${var.name}-state"
   }
 }
 
 resource "aws_instance" "tunnel" {
-  ami                         = data.aws_ami.linux.id
-  instance_type               = var.instance_type
-  subnet_id                   = local.subnet_id
-  vpc_security_group_ids      = [aws_security_group.edge.id]
-  iam_instance_profile        = aws_iam_instance_profile.instance.name
-  user_data_replace_on_change = true
+  ami                    = data.aws_ami.linux.id
+  instance_type          = var.instance_type
+  subnet_id              = local.subnet_id
+  vpc_security_group_ids = [aws_security_group.host.id]
+  iam_instance_profile   = aws_iam_instance_profile.instance.name
   user_data = templatefile("${path.module}/user-data.sh", {
-    region                 = var.region
-    architecture           = var.architecture
-    domain                 = var.domain
-    acme_email             = var.acme_email
-    admin_actor_base64     = base64encode(var.admin_actor)
-    admin_token_secret_arn = var.admin_token_secret_arn
-    read_token_secret_arn  = var.read_token_secret_arn
-    artifact_bucket        = aws_s3_bucket.artifacts.id
-    artifact_key           = local.object_key
-    artifact_digest        = local.source_digest
+    region                = var.region
+    domain                = var.domain
+    acme_email            = var.acme_email
+    admin_actor_base64    = base64encode(var.admin_actor)
+    admin_token_secret_id = aws_secretsmanager_secret.admin_token.id
+    read_token_secret_id  = aws_secretsmanager_secret.read_token.id
+    artifact_bucket       = aws_s3_bucket.artifacts.id
+    server_key            = local.server_key
+    caddy_key             = local.caddy_key
+    state_volume_id       = replace(aws_ebs_volume.state.id, "-", "")
   })
   metadata_options {
     http_tokens = "required"
@@ -172,7 +257,18 @@ resource "aws_instance" "tunnel" {
     encrypted   = true
     volume_size = 8
   }
-  depends_on = [aws_s3_object.server]
+  lifecycle {
+    # A newer AMI or a changed boot script must never replace the host underneath live tunnels
+    # by itself; recreate deliberately with `terraform apply -replace=aws_instance.tunnel`.
+    ignore_changes = [ami, user_data]
+  }
+  depends_on = [aws_s3_object.server, aws_s3_object.caddy]
+}
+
+resource "aws_volume_attachment" "state" {
+  device_name = "/dev/sdf"
+  volume_id   = aws_ebs_volume.state.id
+  instance_id = aws_instance.tunnel.id
 }
 
 resource "aws_eip" "tunnel" {

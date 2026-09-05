@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/itsHabib/saas-reaper/specimens/ingress-tunnel/internal/link"
@@ -43,7 +42,7 @@ func loadConfig() (config, error) {
 		return config{}, err
 	}
 	if raw := os.Getenv("REAPER_TUNNEL_AGENT_KEEPALIVE"); raw != "" {
-		loaded.link.KeepAliveInterval, err = positiveDuration("REAPER_TUNNEL_AGENT_KEEPALIVE", raw)
+		loaded.link.KeepAliveInterval, err = tunnel.ParseDuration("REAPER_TUNNEL_AGENT_KEEPALIVE", raw)
 		if err != nil {
 			return config{}, err
 		}
@@ -55,28 +54,5 @@ func reconnectDelays(raw string) ([]time.Duration, error) {
 	if raw == "" {
 		return append([]time.Duration(nil), tunnel.DefaultReconnectDelays...), nil
 	}
-	parts := strings.Split(raw, ",")
-	delays := make([]time.Duration, 0, len(parts))
-	for _, part := range parts {
-		delay, err := positiveDuration("REAPER_TUNNEL_AGENT_RECONNECT_DELAYS", part)
-		if err != nil {
-			return nil, err
-		}
-		delays = append(delays, delay)
-	}
-	return delays, nil
-}
-
-func positiveDuration(name, raw string) (time.Duration, error) {
-	if strings.TrimSpace(raw) != raw || raw == "" {
-		return 0, fmt.Errorf("%s must contain unpadded positive durations", name)
-	}
-	duration, err := time.ParseDuration(raw)
-	if err != nil {
-		return 0, fmt.Errorf("parse %s: %w", name, err)
-	}
-	if duration <= 0 {
-		return 0, fmt.Errorf("%s durations must be positive", name)
-	}
-	return duration, nil
+	return tunnel.ParseDelays("REAPER_TUNNEL_AGENT_RECONNECT_DELAYS", raw)
 }

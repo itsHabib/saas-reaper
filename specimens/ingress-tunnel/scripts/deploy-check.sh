@@ -17,12 +17,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-$work_dir/plugin-cache}"
+# Providers are cached per user so repeated local runs do not re-download them; CI starts cold.
+export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/reaper-terraform-plugins}"
 mkdir -p "$TF_PLUGIN_CACHE_DIR"
 
+# The pack is validated from a copy of the specimen so init never writes a provider tree into
+# the checkout, while the pack's relative references to the Go sources still resolve.
 terraform -chdir=deploy/aws fmt -check
-terraform -chdir=deploy/aws init -backend=false -input=false -no-color > /dev/null
-terraform -chdir=deploy/aws validate -no-color > /dev/null
+rsync -a --exclude .terraform --exclude .build ./ "$work_dir/specimen/"
+terraform -chdir="$work_dir/specimen/deploy/aws" init -backend=false -input=false -no-color > /dev/null
+terraform -chdir="$work_dir/specimen/deploy/aws" validate -no-color > /dev/null
 shellcheck deploy/aws/user-data.sh
 
 # The pack cross-compiles the server for the instance; prove the build the apply will run.

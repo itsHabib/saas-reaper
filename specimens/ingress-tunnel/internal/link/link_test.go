@@ -22,7 +22,6 @@ type fakeConnector struct {
 	token     string
 	attachErr error
 	links     []tunnel.Link
-	lost      chan struct{}
 }
 
 func (f *fakeConnector) Authenticate(_ context.Context, token string) (tunnel.Claim, error) {
@@ -106,7 +105,7 @@ func TestNewDialerValidatesEndpointAndCredential(t *testing.T) {
 }
 
 func TestStreamsCrossTheLinkInBothDirections(t *testing.T) {
-	connector := &fakeConnector{token: "good", lost: make(chan struct{})}
+	connector := &fakeConnector{token: "good"}
 	server := startServer(t, connector)
 	listener, err := dial(t, server, "good")
 	if err != nil {
@@ -213,12 +212,45 @@ func TestAnEvictedAgentLearnsTheReason(t *testing.T) {
 		if err := session.Close(reason); err != nil {
 			t.Fatal(err)
 		}
-		_, err = listener.Accept()
+		if _, err = listener.Accept(); err == nil {
+			t.Fatalf("accept after %s eviction succeeded", reason)
+		}
 		var evicted EvictedError
-		if !errors.As(err, &evicted) || evicted.Reason != reason || !evicted.Permanent() {
-			t.Fatalf("accept after %s eviction = %v", reason, err)
+		if !errors.As(listener.Reason(), &evicted) || evicted.Reason != reason || !evicted.Permanent() {
+			t.Fatalf("reason after %s eviction = %v", reason, listener.Reason())
 		}
 		_ = listener.Close()
+	}
+}
+
+func TestShutdownTellsAgentsTheServerIsGoingAway(t *testing.T) {
+	connector := &fakeConnector{token: "good"}
+	handler, err := NewHandler(connector, testConfig(), slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /v1/connect", handler)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	listener, err := dial(t, server, "good")
+	if err != nil {
+		t.Fatal(err)
+	}
+	connector.link(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := handler.Shutdown(ctx); err != nil {
+		t.Fatalf("shutdown = %v", err)
+	}
+	if _, err := listener.Accept(); err == nil {
+		t.Fatal("agent listener survived the server shutdown")
+	}
+	if reason := listener.Reason(); reason != nil {
+		t.Fatalf("a shutdown was reported as an eviction: %v", reason)
+	}
+	if _, err := dial(t, server, "good"); err == nil {
+		t.Fatal("a new agent attached after shutdown began")
 	}
 }
 
@@ -232,10 +264,11 @@ func TestAPlainLinkLossIsNotAnEviction(t *testing.T) {
 	if err := connector.link(t).Close(tunnel.CloseShutdown); err != nil {
 		t.Fatal(err)
 	}
-	_, err = listener.Accept()
-	var evicted EvictedError
-	if err == nil || errors.As(err, &evicted) {
-		t.Fatalf("accept after a server shutdown = %v, want a plain loss", err)
+	if _, err = listener.Accept(); err == nil {
+		t.Fatal("accept after a server shutdown succeeded")
+	}
+	if reason := listener.Reason(); reason != nil {
+		t.Fatalf("a shutdown was reported as an eviction: %v", reason)
 	}
 }
 

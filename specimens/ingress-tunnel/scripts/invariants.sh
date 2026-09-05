@@ -30,7 +30,7 @@ wait_presence umbrella live
 [[ "$(edge_status "$domain" /whoami)" == 404 ]] || fail "the apex was served"
 [[ "$(edge_status "deep.acme.$domain" /whoami)" == 404 ]] || fail "a nested label was served"
 [[ "$(edge_status "acme.$domain.evil.test" /whoami)" == 404 ]] || fail "a suffix-spoofed host was served"
-[[ "$(edge_status "www.$domain" /whoami)" == 404 ]] || fail "a reserved label was served"
+[[ "$(edge_status "www.$domain" /whoami)" == 502 ]] || fail "a reserved label was served or revealed"
 
 # Forwarded headers come from what the edge observed, not from what the visitor sent.
 spoofed=$(curl --fail --silent --header "Host: acme.$domain" --header 'X-Forwarded-Host: victim.example' \
@@ -41,11 +41,11 @@ jq -e --arg host "acme.$domain" '.forwardedHost == $host and .forwardedProto == 
 # Claiming requires a credential the server issued; a malformed or unknown token never attaches
 # and the agent stops rather than retrying forever.
 start_agent malformed not-a-token "$acme_target_port"
-[[ "$(wait_exit "$(agent_pid malformed)" 'malformed-token agent')" != 0 ]] || fail "a malformed token agent exited zero"
+assert_stops "$(agent_pid malformed)" 'malformed-token agent'
 grep -q 'status 401' "$work_dir/agent-malformed.log" || fail "the malformed token was not refused with 401"
 unknown_token="rtk_$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')"
 start_agent unknown "$unknown_token" "$acme_target_port"
-[[ "$(wait_exit "$(agent_pid unknown)" 'unknown-token agent')" != 0 ]] || fail "an unknown token agent exited zero"
+assert_stops "$(agent_pid unknown)" 'unknown-token agent'
 grep -q 'status 401' "$work_dir/agent-unknown.log" || fail "the unknown token was not refused with 401"
 
 # Management and read authorities are separate in both directions.
@@ -65,23 +65,16 @@ grep -q 'status 401' "$work_dir/agent-unknown.log" || fail "the unknown token wa
 # A second agent with the same credential supersedes the first: traffic moves at once and the
 # superseded agent stops instead of fighting back.
 start_agent acme-second "$acme_token" "$umbrella_target_port"
-moved=false
-for _ in {1..200}; do
-  if [[ "$(whoami_field "acme.$domain" name 2> /dev/null || true)" == umbrella ]]; then
-    moved=true
-    break
-  fi
-  sleep 0.05
-done
-[[ "$moved" == true ]] || fail "traffic did not move to the superseding agent"
-[[ "$(wait_exit "$(agent_pid acme)" 'superseded agent')" != 0 ]] || fail "the superseded agent exited zero"
+wait_until 200 "traffic did not move to the superseding agent" serves_name "acme.$domain" umbrella
+assert_stops "$(agent_pid acme)" 'superseded agent'
 grep -q 'superseded' "$work_dir/agent-acme.log" || fail "the superseded agent was not told why it stopped"
 sleep 0.5
 [[ "$(whoami_field "acme.$domain" name)" == umbrella ]] || fail "the superseded agent took the tunnel back"
 audit | jq -e '[.audit[] | select(.subdomain == "acme") | .kind] | index("superseded") != null' > /dev/null ||
   fail "supersession was not audited"
 
-# Claims and audit survive a server restart, and agents reconnect on their own schedule.
+# Claims and audit survive a server restart, and agents reconnect on their own schedule. The
+# stop itself is orderly: every live link is told the server is going away and audited.
 audit_before=$(audit | jq -cS '.audit')
 stop_server
 [[ "$(edge_status "acme.$domain" /health)" == 000 ]] || fail "the edge kept answering after the server stopped"
@@ -95,8 +88,11 @@ tunnels | jq -e '(.tunnels | length == 2) and all(.tunnels[]; .revision == 1 and
 before_count=$(jq 'length' <<< "$audit_before")
 audit | jq -cS --argjson count "$before_count" '[.audit[] | select(.sequence <= $count)]' > "$work_dir/audit-kept.json"
 [[ "$(cat "$work_dir/audit-kept.json")" == "$audit_before" ]] || fail "audit rows changed across the restart"
-audit | jq -e --argjson count "$before_count" '[.audit[] | select(.sequence > $count) | .kind] | sort == ["connected", "connected"]' > /dev/null ||
-  fail "the restart did not audit exactly the two reconnections"
+audit | jq -e --argjson count "$before_count" '
+  [.audit[] | select(.sequence > $count) | .kind] | sort == ["connected", "connected", "disconnected", "disconnected"]
+' > /dev/null || fail "the restart did not audit exactly two orderly disconnects and two reconnections"
+grep -q 'tunnel link lost; reconnecting' "$work_dir/agent-umbrella.log" ||
+  fail "the shutdown was not reported to the agent as a recoverable loss"
 
 # Revocation closes the live link, refuses the credential from then on, and is revision-pinned.
 [[ "$(management_status /v1/tunnels/umbrella/revoke '{"expectedRevision":7}')" == 409 ]] || fail "a stale revision revoked"
@@ -104,11 +100,11 @@ management_post /v1/tunnels/umbrella/revoke '{"expectedRevision":1}' "$work_dir/
 jq -e '.state == "revoked" and .revision == 2 and .presence == "absent" and (.revokedAt | length > 0)' \
   "$work_dir/revoke.json" > /dev/null || fail "revoke response was incomplete"
 wait_edge "umbrella.$domain" 502
-[[ "$(wait_exit "$(agent_pid umbrella)" 'revoked agent')" != 0 ]] || fail "the revoked agent exited zero"
-grep -q 'revoked\|status 401' "$work_dir/agent-umbrella.log" || fail "the revoked agent was not told why it stopped"
+assert_stops "$(agent_pid umbrella)" 'revoked agent'
+grep -q 'evicted this agent: revoked' "$work_dir/agent-umbrella.log" || fail "the revoked agent was not told why it stopped"
 [[ "$(management_status /v1/tunnels/umbrella/revoke '{"expectedRevision":2}')" == 409 ]] || fail "a revoked claim revoked twice"
 start_agent umbrella-again "$umbrella_token" "$umbrella_target_port"
-[[ "$(wait_exit "$(agent_pid umbrella-again)" 'revoked-token agent')" != 0 ]] || fail "a revoked token reconnected"
+assert_stops "$(agent_pid umbrella-again)" 'revoked-token agent'
 grep -q 'status 401' "$work_dir/agent-umbrella-again.log" || fail "the revoked token was not refused with 401"
 [[ "$(whoami_field "acme.$domain" name)" == umbrella ]] || fail "revoking umbrella disturbed acme"
 

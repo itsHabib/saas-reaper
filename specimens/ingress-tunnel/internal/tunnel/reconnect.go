@@ -2,6 +2,8 @@ package tunnel
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -43,4 +45,34 @@ func (s Schedule) Delay(attempt int) time.Duration {
 		return s.delays[len(s.delays)-1]
 	}
 	return s.delays[attempt-1]
+}
+
+// ParseDuration reads one configured duration the way every composition root must: unpadded,
+// parseable, and strictly positive. name is the setting being parsed, for the error text.
+func ParseDuration(name, raw string) (time.Duration, error) {
+	if strings.TrimSpace(raw) != raw || raw == "" {
+		return 0, fmt.Errorf("%s must be an unpadded positive duration", name)
+	}
+	duration, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", name, err)
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("%s must be positive", name)
+	}
+	return duration, nil
+}
+
+// ParseDelays reads a comma-separated schedule with ParseDuration applied to every part.
+func ParseDelays(name, raw string) ([]time.Duration, error) {
+	parts := strings.Split(raw, ",")
+	delays := make([]time.Duration, 0, len(parts))
+	for _, part := range parts {
+		delay, err := ParseDuration(name, part)
+		if err != nil {
+			return nil, err
+		}
+		delays = append(delays, delay)
+	}
+	return delays, nil
 }

@@ -2,12 +2,12 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/itsHabib/saas-reaper/specimens/ingress-tunnel/internal/link"
+	"github.com/itsHabib/saas-reaper/specimens/ingress-tunnel/internal/tunnel"
 )
 
 type config struct {
@@ -46,32 +46,18 @@ func loadConfig() (config, error) {
 	}
 	var err error
 	if raw := os.Getenv("REAPER_TUNNEL_HEADER_TIMEOUT"); raw != "" {
-		loaded.headerTimeout, err = positiveDuration("REAPER_TUNNEL_HEADER_TIMEOUT", raw)
+		loaded.headerTimeout, err = tunnel.ParseDuration("REAPER_TUNNEL_HEADER_TIMEOUT", raw)
 		if err != nil {
 			return config{}, err
 		}
 	}
 	if raw := os.Getenv("REAPER_TUNNEL_KEEPALIVE"); raw != "" {
-		loaded.link.KeepAliveInterval, err = positiveDuration("REAPER_TUNNEL_KEEPALIVE", raw)
+		loaded.link.KeepAliveInterval, err = tunnel.ParseDuration("REAPER_TUNNEL_KEEPALIVE", raw)
 		if err != nil {
 			return config{}, err
 		}
 	}
 	return loaded, nil
-}
-
-func positiveDuration(name, raw string) (time.Duration, error) {
-	if strings.TrimSpace(raw) != raw || raw == "" {
-		return 0, fmt.Errorf("%s must be an unpadded positive duration", name)
-	}
-	duration, err := time.ParseDuration(raw)
-	if err != nil {
-		return 0, fmt.Errorf("parse %s: %w", name, err)
-	}
-	if duration <= 0 {
-		return 0, fmt.Errorf("%s must be positive", name)
-	}
-	return duration, nil
 }
 
 func environment(name, fallback string) string {

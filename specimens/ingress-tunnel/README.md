@@ -39,10 +39,10 @@ read plane shows presence and lifecycle without ever showing a credential.
 
 The invariant harness independently proves:
 
-- a host resolves to exactly one label beneath the domain; the apex, nested labels, foreign
-  suffixes, and reserved labels are refused before any agent is consulted;
-- an unclaimed or offline subdomain answers the same way, so the edge does not reveal which
-  names exist;
+- a host resolves to exactly one well-formed label beneath the domain; the apex, nested
+  labels, and foreign suffixes are refused before any agent is consulted;
+- an unclaimed, reserved, or offline subdomain answers the same way, so the edge does not
+  reveal which names exist or are claimable;
 - forwarded headers are stamped from what the edge observed and cannot be spoofed by a visitor;
 - a malformed or unknown credential is refused with 401 and the agent stops rather than retry;
 - the management token cannot read and the read token cannot write, in both directions;
@@ -62,16 +62,22 @@ calls and send traffic only to `127.0.0.1` on ports `1950x`.
 ## Shape
 
 ```text
-visitor ──HTTPS──▶ edge (Host → subdomain) ──stream──▶ link ──WebSocket──▶ agent ──HTTP──▶ target
-operator ─HTTPS──▶ control: management API, read API, agent connect
+visitor ──HTTPS :443───▶ edge (Host → subdomain) ──stream──▶ link ──WebSocket──▶ agent ──HTTP──▶ target
+operator ─HTTPS :8443──▶ control: management API, read API, agent connect
 ```
+
+The control plane has its own port so a perimeter can treat the two audiences differently:
+the pack's `control_cidrs` is your machines, `edge_cidrs` is whoever may reach the tunnels.
 
 - `internal/tunnel` owns policy: subdomain grammar and reserved labels, credential issue and
   hashing, the in-memory registry of live links with supersession by generation, the
-  lifecycle table, host resolution, and the reconnect schedule. It imports no mechanism.
+  lifecycle table, host resolution, and the reconnect schedule. It imports no mechanism. One
+  mutex in the service sequences every status change, and the audit row is committed before
+  the routing table moves, so a failed write evicts nobody and records nothing.
 - `internal/link` is the control connection: one WebSocket per agent, multiplexed with yamux.
   The server opens one stream per request; the agent accepts them. Only this package knows
-  either protocol.
+  either protocol. Links are hijacked from net/http, so the handler owns their lifetime and
+  ends every one, with a stated reason, before the process lets the store close.
 - `internal/edge` is the public ingress: it resolves the host, looks up the live link, and
   reverse-proxies the request down a fresh stream. Streaming, upgrades, and forwarded headers
   are the standard library's proxy with keep-alives disabled so a pooled stream can never
@@ -97,9 +103,11 @@ revoked/absent →  refused (revoked)               (no change)       refused (c
 ```
 
 Supersession is deliberate: a second agent with the same credential takes over, and the
-first is closed with WebSocket status `4001`. A revoked agent is closed with `4003`. The agent
-treats both as permanent and exits; every other loss is retried on the public schedule
-`1s, 2s, 5s, 10s, 30s` with the last delay repeating forever.
+first is closed with WebSocket status `4001`. A revoked agent is closed with `4003`. A server
+going away closes with `1001`. The agent treats the first two as permanent and exits; every
+other loss is retried on the public schedule `1s, 2s, 5s, 10s, 30s` with the last delay
+repeating forever. An eviction waits two seconds for the agent to acknowledge the close frame
+and then cuts the socket, so a wedged agent cannot keep its streams alive.
 
 ## Authority
 
@@ -116,8 +124,17 @@ connections, supersessions, and losses the agent caused. Request bodies never ch
 ## Own it
 
 Fork this module and the pack is the whole rollout: apply it in your account, hand each
-developer one claim, and revoke claims as people leave. The seam for company identity in front
-of visitor traffic is `edge.Proxy`: an authenticating handler wrapped around it sees the
-resolved host and the visitor before any stream is opened. It is the one thing a hosted tunnel
-sells that this specimen leaves for the fork, and it is documented as such rather than shipped
-half-built.
+developer one claim, and revoke claims as people leave. Identity grows in three rungs, and the
+specimen stands on the first:
+
+1. **The perimeter.** `control_cidrs` in the pack is "register your IP" for a team: only those
+   addresses can attach an agent or call the management API.
+2. **Per-claim source addresses.** A claim carrying its own allowed CIDRs, refused at connect
+   time by the control plane. It is "register your IP" per person, revocable per claim, and a
+   contained change to the claim policy and the accept handler.
+3. **A company identity provider.** OIDC in front of visitor traffic and the management API.
+   The seam is `edge.Proxy`: an authenticating handler wrapped around it sees the resolved host
+   and the visitor before any stream is opened.
+
+The last two are the things a hosted tunnel sells that this specimen leaves for the fork, and
+they are documented as such rather than shipped half-built.

@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"log/slog"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -46,13 +45,13 @@ func run() error {
 	return forwarder.Run(ctx)
 }
 
-// listenerDialer adapts the concrete link dialer to the agent's narrow interface without
-// leaking a typed nil listener through the interface value.
+// listenerDialer adapts the concrete link dialer to the agent's interface: the dialer returns
+// its concrete type, as the house style asks, and the agent consumes only what it needs.
 type listenerDialer struct {
 	dialer *link.Dialer
 }
 
-func (d listenerDialer) Dial(ctx context.Context) (net.Listener, error) {
+func (d listenerDialer) Dial(ctx context.Context) (agent.Listener, error) {
 	listener, err := d.dialer.Dial(ctx)
 	if err != nil {
 		return nil, err

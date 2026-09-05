@@ -112,9 +112,9 @@ jobs:
       - name: Install pinned proof dependencies
         run: make -C specimens/ingress-tunnel setup
       - name: Run loopback-only tunnel proofs
-        run: make tunnel-demo tunnel-invariants
+        run: make -C specimens/ingress-tunnel demo invariants
       - name: Validate the AWS deployment pack
-        run: make tunnel-deploy-check
+        run: make -C specimens/ingress-tunnel deploy-check
 
   secrets:
     name: Secret history scan

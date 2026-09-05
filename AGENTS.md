@@ -88,10 +88,13 @@ Only `internal/link` may import the WebSocket or yamux libraries. One lifecycle
 table in `tunnel.Transition` decides every status change and the audit rows
 that record it; the exhaustive walk pins three reachable statuses and nine
 edges. A claim insert or revoke commits with its audit rows in one SQLite
-transaction; presence is in-memory and empties on restart by design. The edge
-opens one fresh stream per request with keep-alives disabled so a pooled stream
-can never outlive the link that owns it, and it answers an unclaimed and an
-offline subdomain identically.
+transaction; presence is in-memory and empties on restart by design. One mutex
+in the service sequences every status change and the audit commits before the
+routing table moves. Links are hijacked from net/http, so the accept handler
+owns their lifetime and ends them all before the store closes. The edge opens
+one fresh stream per request with keep-alives disabled so a pooled stream can
+never outlive the link that owns it, and it answers an unclaimed and an offline
+subdomain identically.
 
 ## Engineering principles
 

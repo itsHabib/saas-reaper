@@ -62,13 +62,14 @@ func run() error {
 	control := http.NewServeMux()
 	management.Register(control)
 	control.Handle("GET /v1/connect", accept)
-	return serve(configuration, control, public, logger)
+	return serve(configuration, control, public, accept, logger)
 }
 
 // serve runs the control and edge listeners together and stops both on the first signal or
-// listener failure. The edge has no write timeout because a tunneled response may stream for
-// as long as the visitor and agent keep it open.
-func serve(configuration config, control, public http.Handler, logger *slog.Logger) error {
+// listener failure. Agent links are hijacked from net/http, so they are ended explicitly, and
+// only after they have ended does the store close beneath them. The edge has no write timeout
+// because a tunneled response may stream for as long as the visitor and agent keep it open.
+func serve(configuration config, control, public http.Handler, links *link.Handler, logger *slog.Logger) error {
 	controlServer := &http.Server{
 		Addr:              configuration.controlAddress,
 		Handler:           control,
@@ -100,7 +101,11 @@ func serve(configuration config, control, public http.Handler, logger *slog.Logg
 	}
 	shutdownContext, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	shutdownErr := errors.Join(edgeServer.Shutdown(shutdownContext), controlServer.Shutdown(shutdownContext))
+	shutdownErr := errors.Join(
+		edgeServer.Shutdown(shutdownContext),
+		controlServer.Shutdown(shutdownContext),
+		links.Shutdown(shutdownContext),
+	)
 	if errors.Is(listenErr, http.ErrServerClosed) {
 		listenErr = nil
 	}

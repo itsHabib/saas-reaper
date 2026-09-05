@@ -12,6 +12,13 @@ import (
 	"github.com/itsHabib/saas-reaper/specimens/ingress-tunnel/internal/tunnel"
 )
 
+// Tunnels is the policy the management and read routes drive.
+type Tunnels interface {
+	Claim(context.Context, string) (tunnel.Issued, error)
+	Revoke(context.Context, string, int) (tunnel.Claim, error)
+	Tunnels(context.Context) ([]tunnel.View, error)
+}
+
 // AuditReader exposes the append-only lifecycle evidence to the read plane.
 type AuditReader interface {
 	Audit(context.Context, int) ([]tunnel.AuditEntry, error)
@@ -19,14 +26,14 @@ type AuditReader interface {
 
 // Server exposes separately authenticated management and read routes.
 type Server struct {
-	tunnels    *tunnel.Service
+	tunnels    Tunnels
 	audit      AuditReader
 	adminToken string
 	readToken  string
 }
 
 // New constructs the transport boundary and rejects authority collapse.
-func New(service *tunnel.Service, audit AuditReader, adminToken, readToken string) (*Server, error) {
+func New(service Tunnels, audit AuditReader, adminToken, readToken string) (*Server, error) {
 	if service == nil || audit == nil {
 		return nil, errors.New("tunnel service and audit reader are required")
 	}

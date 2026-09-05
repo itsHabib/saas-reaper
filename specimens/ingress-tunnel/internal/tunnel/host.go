@@ -6,8 +6,10 @@ import (
 )
 
 // HostSubdomain resolves an inbound Host header against the tunnel domain. It accepts exactly
-// one label below the domain: the apex, nested labels, other domains, and empty hosts all
-// resolve to nothing, so a request can never fall through to a tunnel it did not name.
+// one well-formed label below the domain: the apex, nested labels, other domains, and empty
+// hosts all resolve to nothing, so a request can never fall through to a tunnel it did not
+// name. Only the grammar is applied here; whether a label is claimable is decided at claim time
+// and whether it is served is decided by the routing table.
 func HostSubdomain(host, domain string) (string, bool) {
 	name := strings.ToLower(strings.TrimSuffix(hostWithoutPort(host), "."))
 	suffix := "." + strings.ToLower(strings.TrimSuffix(domain, "."))
@@ -18,7 +20,7 @@ func HostSubdomain(host, domain string) (string, bool) {
 	if label == "" || strings.Contains(label, ".") {
 		return "", false
 	}
-	if ValidateSubdomain(label) != nil {
+	if validateLabel(label) != nil {
 		return "", false
 	}
 	return label, true

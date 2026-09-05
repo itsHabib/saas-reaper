@@ -24,7 +24,7 @@ func (s *Store) InsertClaim(ctx context.Context, claim tunnel.Claim, entry tunne
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO claims (subdomain, token_hash, revision, revoked, created_at, revoked_at)
 		 VALUES (?, ?, ?, 0, ?, NULL)`,
-		claim.Subdomain, claim.TokenHash, claim.Revision, claim.CreatedAt.UTC().Format(time.RFC3339Nano))
+		claim.Subdomain, claim.TokenHash, claim.Revision, claim.CreatedAt.UTC().Format(timeLayout))
 	if isUniqueViolation(err) {
 		return fmt.Errorf("%w: subdomain %q is already claimed", tunnel.ErrConflict, claim.Subdomain)
 	}
@@ -63,7 +63,7 @@ func (s *Store) RevokeClaim(ctx context.Context, subdomain string, expectedRevis
 	result, err := tx.ExecContext(ctx,
 		`UPDATE claims SET revoked = 1, revision = revision + 1, revoked_at = ?
 		 WHERE subdomain = ? AND revision = ? AND revoked = 0`,
-		at.UTC().Format(time.RFC3339Nano), subdomain, expectedRevision)
+		at.UTC().Format(timeLayout), subdomain, expectedRevision)
 	if err != nil {
 		return tunnel.Claim{}, fmt.Errorf("revoke claim: %w", err)
 	}

@@ -5,6 +5,7 @@ package edge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -32,7 +33,14 @@ type Proxy struct {
 	forward string
 }
 
-type linkKey struct{}
+// route is what one request resolved to; it rides the request context from ServeHTTP to the
+// rewrite and the dial so the host is parsed once and the link is the one that was looked up.
+type route struct {
+	subdomain string
+	link      tunnel.Link
+}
+
+type routeKey struct{}
 
 // New validates the edge. forwardProto is the scheme visitors used to reach this edge, which
 // a TLS-terminating front such as Caddy already reports and a bare deployment must declare.
@@ -70,14 +78,15 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusBadGateway, "no agent is connected for this host")
 		return
 	}
-	p.proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), linkKey{}, link)))
+	resolved := route{subdomain: subdomain, link: link}
+	p.proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), routeKey{}, resolved)))
 }
 
 // rewrite keeps the visitor's Host so the agent can route on it, and stamps the forwarded
 // triple from what this edge observed rather than from what the visitor claimed.
 func (p *Proxy) rewrite(request *httputil.ProxyRequest) {
-	subdomain, _ := tunnel.HostSubdomain(request.In.Host, p.domain)
-	request.SetURL(&url.URL{Scheme: "http", Host: subdomain + ".tunnel.internal"})
+	resolved, _ := request.In.Context().Value(routeKey{}).(route)
+	request.SetURL(&url.URL{Scheme: "http", Host: resolved.subdomain + ".tunnel.internal"})
 	request.Out.Host = request.In.Host
 	request.SetXForwarded()
 	request.Out.Header.Set("X-Forwarded-Proto", p.forward)
@@ -85,22 +94,22 @@ func (p *Proxy) rewrite(request *httputil.ProxyRequest) {
 
 // transport dials one fresh stream per request. Keep-alives are disabled on purpose: a pooled
 // stream would outlive the link that owns it, and a superseded agent must never receive a
-// request meant for its successor.
+// request meant for its successor. Streams are cheap; the trade is deliberate.
 func (p *Proxy) transport(headerTimeout time.Duration) http.RoundTripper {
 	return &http.Transport{
-		DialContext:           dialLink,
+		DialContext:           dialRoute,
 		DisableKeepAlives:     true,
 		ResponseHeaderTimeout: headerTimeout,
 		ExpectContinueTimeout: time.Second,
 	}
 }
 
-func dialLink(ctx context.Context, _, _ string) (net.Conn, error) {
-	link, ok := ctx.Value(linkKey{}).(tunnel.Link)
+func dialRoute(ctx context.Context, _, _ string) (net.Conn, error) {
+	resolved, ok := ctx.Value(routeKey{}).(route)
 	if !ok {
-		return nil, errors.New("edge: request carries no tunnel link")
+		return nil, errors.New("edge: request carries no tunnel route")
 	}
-	conn, err := link.Open(ctx)
+	conn, err := resolved.link.Open(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("open tunnel stream: %w", err)
 	}
@@ -118,5 +127,5 @@ func (p *Proxy) upstreamError(w http.ResponseWriter, r *http.Request, err error)
 func refuse(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_, _ = fmt.Fprintf(w, "{\"error\":%q}\n", message)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }

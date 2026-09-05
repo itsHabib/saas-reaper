@@ -99,53 +99,58 @@ build_binaries() {
   GOTOOLCHAIN=local GOPROXY=off go build -o "$work_dir/proof-websocket" ./cmd/proof-websocket
 }
 
-wait_ready() {
-  local url=$1
-  local label=$2
-  local log=$3
+# wait_until polls a command every 50ms for up to ATTEMPTS tries and fails with MESSAGE when
+# it never succeeds. Every liveness wait in the proofs goes through here.
+wait_until() {
+  local attempts=$1
+  local message=$2
+  shift 2
   local _
-  for _ in {1..240}; do
-    if curl --fail --silent --max-time 1 "$url" > /dev/null; then
+  for _ in $(seq 1 "$attempts"); do
+    if "$@" > /dev/null 2>&1; then
       return
     fi
     sleep 0.05
   done
-  echo "$label did not become ready" >&2
-  sed -n '1,120p' "$log" >&2
-  exit 1
+  fail "$message"
+}
+
+wait_ready() {
+  local url=$1
+  local label=$2
+  local log=$3
+  if ! wait_until 240 "$label did not become ready" curl --fail --silent --max-time 1 "$url"; then
+    sed -n '1,120p' "$log" >&2
+    exit 1
+  fi
+}
+
+answers_nothing() {
+  ! curl --silent --max-time 1 "$1" > /dev/null 2>&1
 }
 
 wait_gone() {
   local url=$1
   local label=$2
-  local _
-  for _ in {1..100}; do
-    if ! curl --silent --max-time 1 "$url" > /dev/null 2>&1; then
-      return
-    fi
-    sleep 0.05
-  done
-  fail "$label kept answering after it was stopped"
+  wait_until 100 "$label kept answering after it was stopped" answers_nothing "$url"
 }
 
-# wait_exit waits for a process to end on its own and prints its exit status.
-wait_exit() {
+has_exited() {
+  ! kill -0 "$1" 2> /dev/null
+}
+
+# assert_stops waits for a process to end on its own and fails if it keeps running or if it
+# exits zero. It runs in the caller's shell, never in a substitution, so a failure is fatal.
+assert_stops() {
   local pid=$1
   local label=$2
-  local _
-  for _ in {1..200}; do
-    if ! kill -0 "$pid" 2> /dev/null; then
-      break
-    fi
-    sleep 0.05
-  done
-  if kill -0 "$pid" 2> /dev/null; then
-    fail "$label kept running when it should have stopped"
-  fi
+  wait_until 200 "$label kept running when it should have stopped" has_exited "$pid"
   local status=0
   wait "$pid" 2> /dev/null || status=$?
   forget_pid "$pid"
-  printf '%s\n' "$status"
+  if [[ "$status" -eq 0 ]]; then
+    fail "$label exited zero when it should have reported why it stopped"
+  fi
 }
 
 forget_pid() {
@@ -269,21 +274,18 @@ tunnels() {
 }
 
 audit() {
-  curl --fail --silent --show-error --header "Authorization: Bearer $read_token" "$control_url/v1/audit?limit=${1:-100}"
+  curl --fail --silent --show-error --header "Authorization: Bearer $read_token" "$control_url/v1/audit?limit=100"
+}
+
+has_presence() {
+  tunnels | jq -e --arg subdomain "$1" --arg presence "$2" \
+    '.tunnels[] | select(.subdomain == $subdomain) | .presence == $presence'
 }
 
 wait_presence() {
   local subdomain=$1
   local presence=$2
-  local _
-  for _ in {1..200}; do
-    if tunnels | jq -e --arg subdomain "$subdomain" --arg presence "$presence" \
-      '.tunnels[] | select(.subdomain == $subdomain) | .presence == $presence' > /dev/null 2>&1; then
-      return
-    fi
-    sleep 0.05
-  done
-  fail "tunnel $subdomain never became $presence"
+  wait_until 200 "tunnel $subdomain never became $presence" has_presence "$subdomain" "$presence"
 }
 
 edge_get() {
@@ -298,17 +300,18 @@ edge_status() {
   curl --silent --output /dev/null --write-out '%{http_code}' --header "Host: $host" "$edge_url$path"
 }
 
+edge_answers() {
+  [[ "$(edge_status "$1" /health)" == "$2" ]]
+}
+
 wait_edge() {
   local host=$1
   local expected=$2
-  local _
-  for _ in {1..200}; do
-    if [[ "$(edge_status "$host" /health)" == "$expected" ]]; then
-      return
-    fi
-    sleep 0.05
-  done
-  fail "edge for $host never answered $expected"
+  wait_until 200 "edge for $host never answered $expected" edge_answers "$host" "$expected"
+}
+
+serves_name() {
+  [[ "$(whoami_field "$1" name 2> /dev/null || true)" == "$2" ]]
 }
 
 whoami_field() {

@@ -12,13 +12,13 @@ demo: setup
 product-demo: setup
 	./scripts/product-demo.sh
 
-tunnel-demo:
+tunnel-demo: setup
 	$(MAKE) -C specimens/ingress-tunnel demo
 
-tunnel-invariants:
+tunnel-invariants: setup
 	$(MAKE) -C specimens/ingress-tunnel invariants
 
-tunnel-deploy-check:
+tunnel-deploy-check: setup
 	$(MAKE) -C specimens/ingress-tunnel deploy-check
 
 tunnel-proof: check tunnel-demo tunnel-invariants tunnel-deploy-check

@@ -59,7 +59,7 @@ func insertAudit(ctx context.Context, tx *sql.Tx, entries []tunnel.AuditEntry) e
 	for _, entry := range entries {
 		_, err := tx.ExecContext(ctx,
 			`INSERT INTO audit (at, subdomain, kind, actor, detail) VALUES (?, ?, ?, ?, ?)`,
-			entry.At.UTC().Format(time.RFC3339Nano), entry.Subdomain, string(entry.Kind), entry.Actor, entry.Detail)
+			entry.At.UTC().Format(timeLayout), entry.Subdomain, string(entry.Kind), entry.Actor, entry.Detail)
 		if err != nil {
 			return fmt.Errorf("append audit %s: %w", entry.Kind, err)
 		}
