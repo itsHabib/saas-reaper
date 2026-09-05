@@ -295,14 +295,22 @@ func (m *memoryObserver) StreamOpen(open StreamOpen) {
 	m.opens = append(m.opens, open)
 }
 
-func (m *memoryObserver) last(t *testing.T) Observation {
+// last waits for the observer to have seen at least count requests and returns the newest.
+// The edge records after its handler returns, which can be after the visitor has the response.
+func (m *memoryObserver) last(t *testing.T, count int) Observation {
 	t.Helper()
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(m.requests) == 0 {
-		t.Fatal("nothing was observed")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		m.mu.Lock()
+		if len(m.requests) >= count {
+			defer m.mu.Unlock()
+			return m.requests[len(m.requests)-1]
+		}
+		m.mu.Unlock()
+		time.Sleep(5 * time.Millisecond)
 	}
-	return m.requests[len(m.requests)-1]
+	t.Fatalf("observed fewer than %d requests", count)
+	return Observation{}
 }
 
 func TestEveryOutcomeIsObservedOnce(t *testing.T) {
@@ -314,7 +322,7 @@ func TestEveryOutcomeIsObservedOnce(t *testing.T) {
 	server := httptest.NewServer(proxy)
 	defer server.Close()
 	get(t, server, "acme.tunnel.test", "/whoami")
-	seen := seenBy.last(t)
+	seen := seenBy.last(t, 1)
 	if seen.Subdomain != "acme" || seen.Status != http.StatusOK || seen.Bytes == 0 || seen.Upgraded || seen.Duration <= 0 {
 		t.Fatalf("proxied request observed as %+v", seen)
 	}
@@ -322,11 +330,11 @@ func TestEveryOutcomeIsObservedOnce(t *testing.T) {
 		t.Fatalf("stream opens = %+v", seenBy.opens)
 	}
 	get(t, server, "ghost.tunnel.test", "/")
-	if seen := seenBy.last(t); seen.Subdomain != "ghost" || seen.Status != http.StatusBadGateway {
+	if seen := seenBy.last(t, 2); seen.Subdomain != "ghost" || seen.Status != http.StatusBadGateway {
 		t.Fatalf("offline request observed as %+v", seen)
 	}
 	get(t, server, "tunnel.test", "/")
-	if seen := seenBy.last(t); seen.Subdomain != "" || seen.Status != http.StatusNotFound {
+	if seen := seenBy.last(t, 3); seen.Subdomain != "" || seen.Status != http.StatusNotFound {
 		t.Fatalf("unresolvable host observed as %+v", seen)
 	}
 	if len(seenBy.requests) != 3 {
@@ -369,17 +377,7 @@ func TestATruncatedResponseIsObservedAsAborted(t *testing.T) {
 		_, _ = io.ReadAll(response.Body)
 		_ = response.Body.Close()
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		seenBy.mu.Lock()
-		count := len(seenBy.requests)
-		seenBy.mu.Unlock()
-		if count > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if seen := seenBy.last(t); !seen.Aborted || seen.Status != http.StatusOK {
+	if seen := seenBy.last(t, 1); !seen.Aborted || seen.Status != http.StatusOK {
 		t.Fatalf("truncated response observed as %+v", seen)
 	}
 }
@@ -402,7 +400,7 @@ func TestInformationalResponsesDoNotSettleTheStatus(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("visitor status = %d", response.StatusCode)
 	}
-	if seen := seenBy.last(t); seen.Status != http.StatusOK {
+	if seen := seenBy.last(t, 1); seen.Status != http.StatusOK {
 		t.Fatalf("early hints settled the recorded status: %+v", seen)
 	}
 }
@@ -433,17 +431,7 @@ func TestAnUpgradeIsObservedAsSuch(t *testing.T) {
 	}
 	_, _, _ = socket.Read(ctx)
 	_ = socket.CloseNow()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		seenBy.mu.Lock()
-		count := len(seenBy.requests)
-		seenBy.mu.Unlock()
-		if count > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if seen := seenBy.last(t); !seen.Upgraded || seen.Status != http.StatusSwitchingProtocols {
+	if seen := seenBy.last(t, 1); !seen.Upgraded || seen.Status != http.StatusSwitchingProtocols {
 		t.Fatalf("upgrade observed as %+v", seen)
 	}
 }
