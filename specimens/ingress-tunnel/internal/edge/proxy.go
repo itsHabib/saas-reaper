@@ -83,13 +83,33 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // rewrite keeps the visitor's Host so the agent can route on it, and stamps the forwarded
-// triple from what this edge observed rather than from what the visitor claimed.
+// triple from what this edge observed rather than from what the visitor claimed. The standard
+// proxy strips the inbound forwarded headers before this runs; the client chain is restored
+// only when the immediate peer is the local TLS front, so a visitor who reaches the edge
+// directly cannot supply one, and Caddy's real client address is appended to rather than lost.
 func (p *Proxy) rewrite(request *httputil.ProxyRequest) {
 	resolved, _ := request.In.Context().Value(routeKey{}).(route)
 	request.SetURL(&url.URL{Scheme: "http", Host: resolved.subdomain + ".tunnel.internal"})
 	request.Out.Host = request.In.Host
+	if chain := trustedForwardedFor(request.In); len(chain) > 0 {
+		request.Out.Header["X-Forwarded-For"] = chain
+	}
 	request.SetXForwarded()
 	request.Out.Header.Set("X-Forwarded-Proto", p.forward)
+}
+
+// trustedForwardedFor returns the inbound X-Forwarded-For chain when the peer is a loopback
+// front such as Caddy on the same host, and nothing otherwise.
+func trustedForwardedFor(in *http.Request) []string {
+	host, _, err := net.SplitHostPort(in.RemoteAddr)
+	if err != nil {
+		return nil
+	}
+	peer := net.ParseIP(host)
+	if peer == nil || !peer.IsLoopback() {
+		return nil
+	}
+	return in.Header.Values("X-Forwarded-For")
 }
 
 // transport dials one fresh stream per request. Keep-alives are disabled on purpose: a pooled

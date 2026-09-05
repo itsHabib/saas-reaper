@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"strings"
 	"sync"
 	"testing"
@@ -187,6 +188,35 @@ func TestForwardedHeadersCannotBeSpoofedByTheVisitor(t *testing.T) {
 	}
 	if seen["fhost"] != "acme.tunnel.test" || seen["proto"] != "https" {
 		t.Fatalf("spoofed headers reached the agent: %v", seen)
+	}
+}
+
+func TestForwardedForIsAppendedBehindALoopbackFrontAndDroppedOtherwise(t *testing.T) {
+	cases := []struct {
+		peer string
+		want []string
+	}{
+		{"127.0.0.1:4000", []string{"203.0.113.9, 127.0.0.1"}},
+		{"[::1]:4000", []string{"203.0.113.9, ::1"}},
+		{"198.51.100.4:4000", []string{"198.51.100.4"}},
+	}
+	for _, tc := range cases {
+		in, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://acme.tunnel.test/", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.RemoteAddr = tc.peer
+		in.Header.Set("X-Forwarded-For", "203.0.113.9")
+		out := in.Clone(in.Context())
+		out.Header.Del("X-Forwarded-For")
+		proxy, err := New("tunnel.test", table{}, "https", time.Second, slog.New(slog.DiscardHandler))
+		if err != nil {
+			t.Fatal(err)
+		}
+		proxy.rewrite(&httputil.ProxyRequest{In: in, Out: out})
+		if got := out.Header.Values("X-Forwarded-For"); len(got) != 1 || got[0] != tc.want[0] {
+			t.Fatalf("peer %s forwarded-for = %v, want %v", tc.peer, got, tc.want)
+		}
 	}
 }
 

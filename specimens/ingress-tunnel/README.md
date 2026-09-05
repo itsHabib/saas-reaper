@@ -43,7 +43,9 @@ The invariant harness independently proves:
   labels, and foreign suffixes are refused before any agent is consulted;
 - an unclaimed, reserved, or offline subdomain answers the same way, so the edge does not
   reveal which names exist or are claimable;
-- forwarded headers are stamped from what the edge observed and cannot be spoofed by a visitor;
+- forwarded headers are stamped from what the edge observed and cannot be spoofed by a
+  visitor; the client chain is kept only when the immediate peer is the loopback TLS front, so
+  the origin sees the real visitor address behind Caddy and never a self-declared one;
 - a malformed or unknown credential is refused with 401 and the agent stops rather than retry;
 - the management token cannot read and the read token cannot write, in both directions;
 - a taken, malformed, or reserved subdomain is refused and refusals mint nothing;
