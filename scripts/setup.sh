@@ -15,3 +15,5 @@ examples/python/.venv/bin/python -m pip install \
   --disable-pip-version-check \
   --quiet \
   -r examples/python/requirements.txt
+
+make -C specimens/ingress-tunnel setup
