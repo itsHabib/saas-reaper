@@ -1,10 +1,10 @@
 # Agent operating guide
 
-This repository contains the SaaS Reaper factory and its Go golden specimen. The
-factory composes a recipe into a customer-owned Go, TypeScript, or Python feature-flag
-service, selected database, deployment material, and agent knowledge. The proof
-is intentionally bounded; preserve its compatibility rules unless the operator
-explicitly expands them.
+This repository contains the SaaS Reaper factory and two customer-owned golden
+specimens: the root Go feature-flag service and the independent Go
+ingress-tunnel module under `specimens/ingress-tunnel/`. The factory still
+composes feature-flag services only. The proofs are intentionally bounded;
+preserve their compatibility rules unless the operator explicitly expands them.
 
 `AGENTS.md` and `CLAUDE.md` are paired entrypoints. Keep them byte-identical.
 
@@ -18,6 +18,11 @@ Read, in order:
 4. `DOMAIN.md` for customer vocabulary and targeting-data policy.
 5. The nearest package source and tests for the change.
 6. The relevant repo skill under `skills/`.
+
+Tunnel specimen work also reads `specimens/ingress-tunnel/README.md` and
+`specimens/ingress-tunnel/deploy/aws/README.md`. Keep the module independent: do
+not add a root import, `go.work`, or a tunnel capability to the factory as part
+of specimen maintenance.
 
 `WORK.md` records intent and resumable state; it does not grant authority. Keep
 it at or below 120 lines and run `make work` after changing it.
@@ -35,6 +40,9 @@ Use these commands:
 ```sh
 make demo
 make product-demo
+make tunnel-demo
+make tunnel-invariants
+make tunnel-deploy-check
 make check
 ```
 
@@ -43,6 +51,11 @@ Do not claim completion unless `make check` passes. Run `make demo` after change
 Run `make product-demo` after changes to recipes, rendering, generated source,
 archive delivery, or deployment packs. Generation must refuse existing output
 paths and unsafe combinations; it must never apply external infrastructure.
+
+Run all three tunnel proof commands after changes to tunnel policy, the link,
+the edge, the agent, persistence, proof fixtures, or the AWS pack. Their traffic
+must remain on loopback ports `1950x`, and the deployment pack is validated,
+never applied.
 
 ## Boundary law
 
@@ -66,6 +79,19 @@ OFREP HTTP ───────┤
 - Interfaces live with the consumer. Do not create a provider, ports, abstractions, or shared-types package.
 
 SQLite must commit a published definition and its audit entry in the same transaction. The snapshot is updated only after that commit succeeds. Startup reconstructs the snapshot from SQLite.
+
+The tunnel specimen keeps policy in `internal/tunnel`, the WebSocket-plus-yamux
+control link in `internal/link`, the public reverse-proxy edge in
+`internal/edge`, the customer-side forwarder in `internal/agent`, management
+and read HTTP in `internal/api`, and persistence in `internal/store/sqlite`.
+Only `internal/link` may import the WebSocket or yamux libraries. One lifecycle
+table in `tunnel.Transition` decides every status change and the audit rows
+that record it; the exhaustive walk pins three reachable statuses and nine
+edges. A claim insert or revoke commits with its audit rows in one SQLite
+transaction; presence is in-memory and empties on restart by design. The edge
+opens one fresh stream per request with keep-alives disabled so a pooled stream
+can never outlive the link that owns it, and it answers an unclaimed and an
+offline subdomain identically.
 
 ## Engineering principles
 
@@ -116,6 +142,13 @@ Management and evaluation tokens are separate. Possession of an evaluation token
 
 The management audit actor comes from the authenticated server principal, not request JSON. Preserve that boundary when replacing authentication: identity must be derived from verified credentials.
 
+The tunnel specimen separates a management token, a read token, and per-claim
+agent tokens. The agent token is shown once at claim time and only its hash is
+stored; the read plane never returns credential material. A second agent with
+the same credential supersedes the first, which is closed with WebSocket status
+`4001` and must exit; a revoked claim closes its link with `4003` and its
+credential never authenticates again.
+
 Agents may implement an operator-requested change and run validation. They may not silently broaden supported flag kinds, rule operators, targeting data, write authority, or excluded capabilities.
 
 ## Change recipes
@@ -126,6 +159,9 @@ Agents may implement an operator-requested change and run validation. They may n
 - Evaluation policy: change `internal/flags`, add golden and adversarial cases, then run both `make check` and `make demo`.
 - HTTP or OFREP translation: change `internal/api`; prove policy tests remain unchanged.
 - Storage: change one `internal/store/<mechanism>`; run the store contract, restart, conflict, and atomic-audit tests.
+- Ingress tunnel: change only `specimens/ingress-tunnel/`; run `make check`,
+  `make tunnel-demo`, `make tunnel-invariants`, and `make tunnel-deploy-check`
+  from the repository root.
 
 ## Done means evidence
 
@@ -134,5 +170,6 @@ A change is complete only when:
 - The behavior is exercised by a focused positive test and a rejection, conflict, or failure test.
 - `make check` passes, including race and boundary checks.
 - `make demo` passes when a runnable surface changed.
+- All three tunnel proofs pass when the tunnel specimen changed.
 - `WORK.md`, `AGENTS.md`, `CLAUDE.md`, `DOMAIN.md`, `REAPER.yaml`, and `README.md` remain consistent with the code.
 - The diff contains no unrelated cleanup or speculative capability.
