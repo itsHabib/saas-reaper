@@ -18,6 +18,7 @@ type Observation struct {
 	Bytes     int64
 	Duration  time.Duration
 	Upgraded  bool
+	Aborted   bool
 	Peer      string
 }
 
@@ -55,8 +56,12 @@ type recorder struct {
 	wrote    bool
 }
 
+// WriteHeader records the final status. Informational responses such as 103 pass through
+// without settling it, so an origin that sends early hints before its real answer is recorded
+// by that answer; a 101 is final because the connection changes hands.
 func (r *recorder) WriteHeader(status int) {
-	if !r.wrote {
+	informational := status >= 100 && status < 200 && status != http.StatusSwitchingProtocols
+	if !r.wrote && !informational {
 		r.status = status
 		r.wrote = true
 	}

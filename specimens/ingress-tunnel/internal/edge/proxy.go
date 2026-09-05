@@ -69,11 +69,24 @@ func New(domain string, router Router, forwardProto string, headerTimeout time.D
 
 // ServeHTTP refuses any host that does not name exactly one live tunnel. A claimed-but-offline
 // subdomain and an unclaimed one answer identically so the edge never reveals which names exist.
-// Every outcome, refused or proxied, is observed once and logged once.
+// Every outcome, refused or proxied, is observed once and logged once. The standard proxy
+// abandons a response whose copy fails by panicking with http.ErrAbortHandler; the observation
+// is deferred so a truncated response is recorded as aborted before the panic continues.
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	recorded := &recorder{ResponseWriter: w}
-	subdomain := p.serve(recorded, r)
+	subdomain := ""
+	defer func() {
+		aborted := recover()
+		p.record(r, subdomain, recorded, started, aborted != nil)
+		if aborted != nil {
+			panic(aborted)
+		}
+	}()
+	subdomain = p.serve(recorded, r)
+}
+
+func (p *Proxy) record(r *http.Request, subdomain string, recorded *recorder, started time.Time, aborted bool) {
 	observation := Observation{
 		Subdomain: subdomain,
 		Method:    r.Method,
@@ -81,6 +94,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Bytes:     recorded.bytes,
 		Duration:  time.Since(started),
 		Upgraded:  recorded.upgraded,
+		Aborted:   aborted,
 		Peer:      r.RemoteAddr,
 	}
 	p.observer.Request(observation)
@@ -93,6 +107,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"bytes", observation.Bytes,
 		"duration", observation.Duration,
 		"upgraded", observation.Upgraded,
+		"aborted", observation.Aborted,
 		"peer", observation.Peer,
 	)
 }

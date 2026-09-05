@@ -171,8 +171,8 @@ CADDY
 # The CloudWatch agent ships both services' logs and Caddy's access logs off the host and
 # scrapes the loopback metrics endpoint, so an instance replacement loses no history.
 dnf install -y amazon-cloudwatch-agent
-# Terraform fills the group names and namespace; the InstanceId dimension is the agent's own
-# placeholder, escaped so Terraform leaves it alone.
+# Terraform fills the group names and namespace. The Prometheus receiver lives under logs, which
+# is where the agent's Prometheus-to-EMF pipeline is configured.
 cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWAGENT'
 {
   "logs": {
@@ -184,13 +184,10 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWAG
           {"file_path": "/var/log/caddy/control.log", "log_group_name": "${log_group_caddy}", "log_stream_name": "{instance_id}/control"}
         ]
       }
-    }
-  },
-  "metrics": {
-    "namespace": "${metrics_namespace}",
-    "append_dimensions": {"InstanceId": "$${aws:InstanceId}"},
+    },
     "metrics_collected": {
       "prometheus": {
+        "log_group_name": "${log_group_server}",
         "prometheus_config_path": "/opt/aws/amazon-cloudwatch-agent/etc/prometheus.yaml",
         "emf_processor": {
           "metric_namespace": "${metrics_namespace}",
@@ -203,6 +200,20 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWAG
   }
 }
 CWAGENT
+# The server log is appended by systemd and has no rotation of its own; logrotate bounds it the
+# way Caddy bounds its access logs, and copytruncate keeps the agent's tail position valid.
+cat > /etc/logrotate.d/reaper-tunnel << 'ROTATE'
+/var/log/reaper-tunnel/server.log {
+	size 50M
+	rotate 5
+	compress
+	delaycompress
+	missingok
+	notifempty
+	copytruncate
+}
+ROTATE
+
 cat > /opt/aws/amazon-cloudwatch-agent/etc/prometheus.yaml << 'PROM'
 global:
   scrape_interval: 60s

@@ -334,6 +334,79 @@ func TestEveryOutcomeIsObservedOnce(t *testing.T) {
 	}
 }
 
+// truncatingLink answers with a body shorter than it promised, which makes the standard proxy
+// abandon the response the way a stream that dies mid-copy does.
+type truncatingLink struct{}
+
+func (truncatingLink) Open(context.Context) (net.Conn, error) {
+	client, server := net.Pipe()
+	go func() {
+		defer func() { _ = server.Close() }()
+		buffer := make([]byte, 4096)
+		_, _ = server.Read(buffer)
+		_, _ = io.WriteString(server, "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nhello")
+	}()
+	return client, nil
+}
+
+func (truncatingLink) Close(tunnel.CloseReason) error { return nil }
+
+func TestATruncatedResponseIsObservedAsAborted(t *testing.T) {
+	seenBy := &memoryObserver{}
+	proxy, err := New("tunnel.test", table{"acme": truncatingLink{}}, "https", 5*time.Second, seenBy, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(proxy)
+	defer server.Close()
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL+"/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Host = "acme.tunnel.test"
+	response, err := server.Client().Do(request)
+	if err == nil {
+		_, _ = io.ReadAll(response.Body)
+		_ = response.Body.Close()
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		seenBy.mu.Lock()
+		count := len(seenBy.requests)
+		seenBy.mu.Unlock()
+		if count > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if seen := seenBy.last(t); !seen.Aborted || seen.Status != http.StatusOK {
+		t.Fatalf("truncated response observed as %+v", seen)
+	}
+}
+
+func TestInformationalResponsesDoNotSettleTheStatus(t *testing.T) {
+	seenBy := &memoryObserver{}
+	hinting := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Add("Link", "</style.css>; rel=preload; as=style")
+		w.WriteHeader(http.StatusEarlyHints)
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "body")
+	})
+	proxy, err := New("tunnel.test", table{"acme": &pipeLink{handler: hinting}}, "https", 5*time.Second, seenBy, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(proxy)
+	defer server.Close()
+	response := get(t, server, "acme.tunnel.test", "/")
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("visitor status = %d", response.StatusCode)
+	}
+	if seen := seenBy.last(t); seen.Status != http.StatusOK {
+		t.Fatalf("early hints settled the recorded status: %+v", seen)
+	}
+}
+
 func TestAnUpgradeIsObservedAsSuch(t *testing.T) {
 	seenBy := &memoryObserver{}
 	echo := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

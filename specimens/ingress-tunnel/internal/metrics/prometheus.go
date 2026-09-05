@@ -22,6 +22,7 @@ type Registry struct {
 	bytes       *prometheus.CounterVec
 	durations   *prometheus.HistogramVec
 	upgrades    *prometheus.CounterVec
+	aborted     *prometheus.CounterVec
 	streamOpens *prometheus.HistogramVec
 	streamFails *prometheus.CounterVec
 }
@@ -50,6 +51,10 @@ func New(live func() int) (*Registry, error) {
 			Name: "reaper_tunnel_upgrades_total",
 			Help: "WebSocket upgrades carried through the edge, by subdomain.",
 		}, []string{"subdomain"}),
+		aborted: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "reaper_tunnel_aborted_responses_total",
+			Help: "Responses abandoned mid-body because the agent stream or the visitor failed, by subdomain.",
+		}, []string{"subdomain"}),
 		streamOpens: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "reaper_tunnel_stream_open_seconds",
 			Help:    "Time to open one stream to an agent, by subdomain.",
@@ -65,7 +70,7 @@ func New(live func() int) (*Registry, error) {
 		Help: "Agent links attached right now.",
 	}, func() float64 { return float64(live()) })
 	for _, collector := range []prometheus.Collector{
-		r.requests, r.bytes, r.durations, r.upgrades, r.streamOpens, r.streamFails, links,
+		r.requests, r.bytes, r.durations, r.upgrades, r.aborted, r.streamOpens, r.streamFails, links,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	} {
 		if err := r.registry.Register(collector); err != nil {
@@ -87,6 +92,9 @@ func (r *Registry) Request(observation edge.Observation) {
 	r.durations.WithLabelValues(subdomain).Observe(observation.Duration.Seconds())
 	if observation.Upgraded {
 		r.upgrades.WithLabelValues(subdomain).Inc()
+	}
+	if observation.Aborted {
+		r.aborted.WithLabelValues(subdomain).Inc()
 	}
 }
 
