@@ -97,7 +97,9 @@ func rewriteTo(target *url.URL) func(*httputil.ProxyRequest) {
 func (a *Agent) Run(ctx context.Context) error {
 	failures := 0
 	for ctx.Err() == nil {
-		if err := a.attempt(ctx, &failures); err != nil {
+		var err error
+		failures, err = a.attempt(ctx, failures)
+		if err != nil {
 			return err
 		}
 		if !a.pause(ctx, failures) {
@@ -107,27 +109,24 @@ func (a *Agent) Run(ctx context.Context) error {
 	return nil
 }
 
-// attempt dials once and, on success, serves until the link ends. It returns an error only
-// when the run must stop; every other outcome counts a failure and lets the caller pause.
-func (a *Agent) attempt(ctx context.Context, failures *int) error {
+// attempt dials once and, on success, serves until the link ends. It returns the failure
+// count the next pause is computed from, and an error only when the run must stop.
+func (a *Agent) attempt(ctx context.Context, failures int) (int, error) {
 	listener, err := a.dialer.Dial(ctx)
 	if permanent(err) {
-		return err
+		return failures, err
 	}
 	if err != nil {
-		*failures++
-		a.logger.Warn("tunnel dial failed; retrying", "error", err, "delay", a.schedule.Delay(*failures))
-		return nil
+		a.logger.Warn("tunnel dial failed; retrying", "error", err, "delay", a.schedule.Delay(failures+1))
+		return failures + 1, nil
 	}
-	*failures = 0
 	a.logger.Info("tunnel link established")
 	a.serve(ctx, listener)
 	if reason := listener.Reason(); permanent(reason) {
-		return reason
+		return 0, reason
 	}
-	*failures++
-	a.logger.Warn("tunnel link lost; reconnecting", "delay", a.schedule.Delay(*failures))
-	return nil
+	a.logger.Warn("tunnel link lost; reconnecting", "delay", a.schedule.Delay(1))
+	return 1, nil
 }
 
 // pause waits out the schedule for the given failure count and reports whether the run should
@@ -151,13 +150,20 @@ func (a *Agent) serve(ctx context.Context, listener Listener) {
 	select {
 	case <-done:
 	case <-ctx.Done():
-		if err := listener.Close(); err != nil {
-			a.logger.Warn("close tunnel link", "error", err)
-		}
+		a.closeListener(listener)
 		<-done
 	}
+	// Serve returning does not close the listener it was given; a lost link is closed here
+	// on every path so a flapping server cannot leak one socket per reconnect.
+	a.closeListener(listener)
 	if err := server.Close(); err != nil {
 		a.logger.Warn("close stream server", "error", err)
+	}
+}
+
+func (a *Agent) closeListener(listener Listener) {
+	if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		a.logger.Warn("close tunnel link", "error", err)
 	}
 }
 

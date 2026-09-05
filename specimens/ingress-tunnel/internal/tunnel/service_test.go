@@ -98,6 +98,11 @@ func newTestService(t *testing.T, store *memoryStore) (*Service, *Registry) {
 	t.Helper()
 	registry := NewRegistry()
 	clock := func() time.Time { return time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC) }
+	return newTestServiceAt(t, store, registry, clock)
+}
+
+func newTestServiceAt(t *testing.T, store *memoryStore, registry *Registry, clock func() time.Time) (*Service, *Registry) {
+	t.Helper()
 	random := bytes.NewReader(bytes.Repeat([]byte{42}, 4096))
 	service, err := NewService(store, registry, "operator", clock, random, slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -222,6 +227,63 @@ func TestAttachSupersedesAndIgnoresTheOldLoss(t *testing.T) {
 	}
 	if store.audit[1].Actor != AgentActor("acme") {
 		t.Fatalf("connection audit actor = %q", store.audit[1].Actor)
+	}
+}
+
+func TestATakeoverInsideTheCooldownIsRefusedAndThenAllowed(t *testing.T) {
+	store := newMemoryStore()
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	service, registry := newTestServiceAt(t, store, NewRegistry(), clock)
+	issued, err := service.Claim(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := &fakeLink{name: "first"}
+	if _, err := service.Attach(context.Background(), issued.Claim, first); err != nil {
+		t.Fatal(err)
+	}
+	second := &fakeLink{name: "second"}
+	if _, err := service.Attach(context.Background(), issued.Claim, second); err != nil {
+		t.Fatalf("the first takeover was refused: %v", err)
+	}
+	if _, err := service.Authenticate(context.Background(), issued.Token); !errors.Is(err, ErrConflict) {
+		t.Fatalf("a loser reconnecting inside the cooldown authenticated: %v", err)
+	}
+	if _, err := service.Attach(context.Background(), issued.Claim, &fakeLink{name: "loser"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("a loser attaching inside the cooldown succeeded: %v", err)
+	}
+	if link, _ := registry.Lookup("acme"); link != second || second.closed != 0 {
+		t.Fatal("the refused takeover disturbed the winner")
+	}
+	now = now.Add(SupersedeCooldown)
+	if _, err := service.Authenticate(context.Background(), issued.Token); err != nil {
+		t.Fatalf("a takeover after the cooldown was refused: %v", err)
+	}
+	if _, err := service.Attach(context.Background(), issued.Claim, &fakeLink{name: "third"}); err != nil {
+		t.Fatalf("a takeover after the cooldown failed: %v", err)
+	}
+}
+
+func TestTheCooldownEndsWhenTheWinnerLeaves(t *testing.T) {
+	store := newMemoryStore()
+	service, _ := newTestService(t, store)
+	issued, err := service.Claim(context.Background(), "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Attach(context.Background(), issued.Claim, &fakeLink{name: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	winner, err := service.Attach(context.Background(), issued.Claim, &fakeLink{name: "second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := winner.Lost(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Attach(context.Background(), issued.Claim, &fakeLink{name: "returning"}); err != nil {
+		t.Fatalf("a reconnect after the winner left was refused: %v", err)
 	}
 }
 

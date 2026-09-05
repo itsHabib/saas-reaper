@@ -107,7 +107,11 @@ first is closed with WebSocket status `4001`. A revoked agent is closed with `40
 going away closes with `1001`. The agent treats the first two as permanent and exits; every
 other loss is retried on the public schedule `1s, 2s, 5s, 10s, 30s` with the last delay
 repeating forever. An eviction waits two seconds for the agent to acknowledge the close frame
-and then cuts the socket, so a wedged agent cannot keep its streams alive.
+and then cuts the socket, so a wedged agent cannot keep its streams alive. The close frame is
+best effort, so the server also enforces the outcome: for one minute after a takeover, a
+connect against the live link is refused with `409`, which the agent treats as final. A
+loser that missed its `4001` therefore stops on its next dial instead of taking the claim
+back, and two agents sharing a credential can never flap.
 
 ## Authority
 

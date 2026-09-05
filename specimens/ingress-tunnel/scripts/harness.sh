@@ -100,7 +100,8 @@ build_binaries() {
 }
 
 # wait_until polls a command every 50ms for up to ATTEMPTS tries and fails with MESSAGE when
-# it never succeeds. Every liveness wait in the proofs goes through here.
+# it never succeeds. Every liveness wait in the proofs goes through here. Pass an empty
+# MESSAGE to make it return non-zero instead, for callers that add diagnostics first.
 wait_until() {
   local attempts=$1
   local message=$2
@@ -108,20 +109,23 @@ wait_until() {
   local _
   for _ in $(seq 1 "$attempts"); do
     if "$@" > /dev/null 2>&1; then
-      return
+      return 0
     fi
     sleep 0.05
   done
-  fail "$message"
+  if [[ -n "$message" ]]; then
+    fail "$message"
+  fi
+  return 1
 }
 
 wait_ready() {
   local url=$1
   local label=$2
   local log=$3
-  if ! wait_until 240 "$label did not become ready" curl --fail --silent --max-time 1 "$url"; then
+  if ! wait_until 240 '' curl --fail --silent --max-time 1 "$url"; then
     sed -n '1,120p' "$log" >&2
-    exit 1
+    fail "$label did not become ready"
   fi
 }
 
@@ -144,6 +148,7 @@ has_exited() {
 assert_stops() {
   local pid=$1
   local label=$2
+  [[ "$pid" =~ ^[0-9]+$ ]] || fail "$label has no recorded pid"
   wait_until 200 "$label kept running when it should have stopped" has_exited "$pid"
   local status=0
   wait "$pid" 2> /dev/null || status=$?

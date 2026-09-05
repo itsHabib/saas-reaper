@@ -22,12 +22,19 @@ type Store interface {
 	ListClaims(context.Context) ([]Claim, error)
 }
 
+// SupersedeCooldown is how long after one agent takes a claim over that a further takeover is
+// refused. The close frame that tells the loser to stop is best effort; if it is missed, the
+// loser reconnects on its schedule and would otherwise take the claim straight back. Within
+// the cooldown a connect against a live link is a conflict, which the agent treats as final.
+const SupersedeCooldown = time.Minute
+
 // Service composes the store and the routing table under the lifecycle table. One mutex
 // sequences every status change, so the durable claim and the volatile presence are always
 // read and changed as a pair and the audit describes exactly the transition that happened.
 type Service struct {
 	mu         sync.Mutex
 	generation uint64
+	superseded map[string]time.Time
 	store      Store
 	registry   *Registry
 	actor      string
@@ -44,7 +51,15 @@ func NewService(store Store, registry *Registry, actor string, now func() time.T
 	if strings.TrimSpace(actor) == "" {
 		return nil, errors.New("management actor is required")
 	}
-	return &Service{store: store, registry: registry, actor: actor, now: now, random: random, logger: logger}, nil
+	return &Service{
+		superseded: map[string]time.Time{},
+		store:      store,
+		registry:   registry,
+		actor:      actor,
+		now:        now,
+		random:     random,
+		logger:     logger,
+	}, nil
 }
 
 // Issued is a fresh claim with the one-time credential that proves it.
@@ -95,12 +110,14 @@ func (s *Service) Revoke(ctx context.Context, subdomain string, expectedRevision
 	}
 	link, had := s.registry.Evict(subdomain)
 	if had {
+		delete(s.superseded, subdomain)
 		s.closeLink(link, subdomain, CloseRevoked)
 	}
 	return revoked, nil
 }
 
 // Authenticate resolves an agent credential to its active claim without attaching anything.
+// It also refuses, before any upgrade, a takeover that the cooldown forbids.
 func (s *Service) Authenticate(ctx context.Context, token string) (Claim, error) {
 	if err := ValidateToken(token); err != nil {
 		return Claim{}, err
@@ -115,7 +132,22 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Claim, error)
 	if claim.Revoked {
 		return Claim{}, fmt.Errorf("%w: agent token was revoked", ErrUnauthorized)
 	}
-	return claim, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return claim, s.takeoverAllowed(claim.Subdomain)
+}
+
+// takeoverAllowed is called under the lock: a connect against a live link is fine unless that
+// link itself arrived by supersession within the cooldown.
+func (s *Service) takeoverAllowed(subdomain string) error {
+	if s.registry.Presence(subdomain) != PresenceLive {
+		return nil
+	}
+	since, ok := s.superseded[subdomain]
+	if !ok || s.now().Sub(since) >= SupersedeCooldown {
+		return nil
+	}
+	return fmt.Errorf("%w: another agent took over %s recently; try again after the cooldown", ErrConflict, subdomain)
 }
 
 // Connection is one attached link's handle; Lost reports its end.
@@ -142,6 +174,9 @@ func (s *Service) Attach(ctx context.Context, claim Claim, link Link) (Connectio
 	if current.TokenHash != claim.TokenHash {
 		return Connection{}, fmt.Errorf("%w: claim was reissued", ErrUnauthorized)
 	}
+	if err := s.takeoverAllowed(claim.Subdomain); err != nil {
+		return Connection{}, err
+	}
 	outcome := Transition(Status{Claim: current.State(), Presence: s.registry.Presence(claim.Subdomain)}, EventConnect)
 	if outcome.Err != nil {
 		return Connection{}, outcome.Err
@@ -154,6 +189,7 @@ func (s *Service) Attach(ctx context.Context, claim Claim, link Link) (Connectio
 	s.generation = generation
 	previous := s.registry.Attach(claim.Subdomain, link, generation)
 	if previous != nil {
+		s.superseded[claim.Subdomain] = s.now()
 		s.closeLink(previous, claim.Subdomain, CloseSuperseded)
 	}
 	return Connection{Subdomain: claim.Subdomain, generation: generation, service: s}, nil
@@ -171,6 +207,7 @@ func (c Connection) Lost(ctx context.Context) error {
 	if !s.registry.Detach(c.Subdomain, c.generation) {
 		return nil
 	}
+	delete(s.superseded, c.Subdomain)
 	outcome := Transition(Status{Claim: ClaimActive, Presence: PresenceLive}, EventLinkLost)
 	entries := s.entries(outcome.Audit, c.Subdomain, s.now().UTC(), AgentActor(c.Subdomain), fmt.Sprintf("generation %d", c.generation))
 	if err := s.store.AppendAudit(ctx, entries); err != nil {

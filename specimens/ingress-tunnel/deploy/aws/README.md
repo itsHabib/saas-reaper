@@ -95,8 +95,11 @@ address until something needs to be public.
   rebuilds Caddy. A timer on the host checks the bucket every five minutes and restarts only
   the service whose binary changed. The instance is never replaced by a code change, and a
   newer AMI never replaces it on its own.
-- Tokens rotate with `terraform apply -replace=random_password.admin_token` followed by
-  `systemctl restart reaper-tunnel` on the host, or a deliberate instance replacement.
+- The service reads both tokens from Secrets Manager before every start, so tokens rotate
+  with `terraform apply -replace=random_password.admin_token` followed by
+  `systemctl restart reaper-tunnel` on the host.
+- Changing `domain`, `acme_email`, or `admin_actor` replaces the instance on purpose; the
+  state volume and its claims survive. Every other input change leaves the host alone.
 
 ## What the pack does not do
 
@@ -106,6 +109,8 @@ address until something needs to be public.
   addresses in the server itself are the step before it.
 - It does not run more than one host. One tunnel server is a single process by design; the
   registry of live links is in memory and the claims are in one SQLite file.
+- `terraform destroy` deletes the state volume and with it every claim and audit row. Snapshot
+  it first if that history matters.
 
 Validate the pack without an account:
 

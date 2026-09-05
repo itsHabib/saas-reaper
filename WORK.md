@@ -60,8 +60,9 @@ runnable proofs and a validated deployment pack.
 - Verified: the exhaustive lifecycle walk pins 3 reachable statuses and 9 edges, and a revoked claim never carries a live link.
 - Verified: the superseded agent exits on WebSocket status 4001 instead of reconnecting, and the revoked one on 4003.
 - Reviewed: a ten-finding local review found two ordering races in policy, an unreachable shutdown path, a vacuous harness assertion, and an instance-replacing digest in the pack; all were fixed with regression tests or harness assertions.
+- Reviewed: a second local round found a supersession flap when the close frame is missed, a token rotation that never reached the host, a systemd-expanded updater loop, a cross-compiled xcaddy, and a fresh-checkout apply failure; all were fixed, with the cooldown pinned by tests.
 
 ## Handoff
 
-- Last: first review round folded; the pack now mints tokens, gates control and edge ports separately, keeps state on its own volume, and pins Caddy.
-- Next: CI green on the reviewed head, one more review round at most, then stop without Gate or merge.
+- Last: both allowed review rounds folded; residual notes are recorded in the pull request.
+- Next: CI green on the reviewed head, then stop without Gate or merge; Codex re-review when its quota returns is the operator's call.

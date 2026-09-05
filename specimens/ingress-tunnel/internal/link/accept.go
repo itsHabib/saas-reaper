@@ -32,7 +32,7 @@ type Handler struct {
 
 	mu      sync.Mutex
 	closing chan struct{}
-	once    sync.Once
+	live    map[*Session]struct{}
 	links   sync.WaitGroup
 }
 
@@ -49,6 +49,7 @@ func NewHandler(connector Connector, configuration Config, logger *slog.Logger) 
 		configuration: configuration,
 		logger:        logger,
 		closing:       make(chan struct{}),
+		live:          map[*Session]struct{}{},
 	}, nil
 }
 
@@ -67,6 +68,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	claim, err := h.connector.Authenticate(r.Context(), token)
 	if errors.Is(err, tunnel.ErrUnauthorized) {
 		reject(w, http.StatusUnauthorized, "agent token is not usable")
+		return
+	}
+	if errors.Is(err, tunnel.ErrConflict) {
+		reject(w, http.StatusConflict, "another agent holds this claim")
 		return
 	}
 	if err != nil {
@@ -97,12 +102,12 @@ func (h *Handler) serve(ctx context.Context, claim tunnel.Claim, socket *websock
 		}
 		return
 	}
-	if !h.track() {
+	if !h.track(session) {
 		_ = session.Close(tunnel.CloseShutdown)
 		<-session.Done()
 		return
 	}
-	defer h.links.Done()
+	defer h.untrack(session)
 	connection, err := h.connector.Attach(linkCtx, claim, session)
 	if err != nil {
 		h.logger.Warn("attach agent link", "subdomain", claim.Subdomain, "error", err)
@@ -124,10 +129,14 @@ func (h *Handler) serve(ctx context.Context, claim tunnel.Claim, socket *websock
 }
 
 // Shutdown tells every attached agent the server is going away and waits, up to ctx, for
-// their links to end. New upgrades are refused from the first call onward.
+// their links to end. At the deadline every remaining link is cut outright, so the caller may
+// close the store afterwards without a link still writing to it. New upgrades are refused
+// from the first call onward.
 func (h *Handler) Shutdown(ctx context.Context) error {
 	h.mu.Lock()
-	h.once.Do(func() { close(h.closing) })
+	if !h.isClosing() {
+		close(h.closing)
+	}
 	h.mu.Unlock()
 	done := make(chan struct{})
 	go func() {
@@ -138,8 +147,14 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
-		return fmt.Errorf("agent links did not end before the shutdown deadline: %w", ctx.Err())
 	}
+	h.mu.Lock()
+	for session := range h.live {
+		session.cut()
+	}
+	h.mu.Unlock()
+	<-done
+	return fmt.Errorf("agent links were cut at the shutdown deadline: %w", ctx.Err())
 }
 
 func (h *Handler) isClosing() bool {
@@ -151,16 +166,24 @@ func (h *Handler) isClosing() bool {
 	}
 }
 
-// track counts a link for shutdown; it refuses once shutdown has begun so a link cannot slip in
-// after the wait group was drained.
-func (h *Handler) track() bool {
+// track registers a link for shutdown; it refuses once shutdown has begun so a link cannot
+// slip in after the wait group was drained.
+func (h *Handler) track(session *Session) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.isClosing() {
 		return false
 	}
+	h.live[session] = struct{}{}
 	h.links.Add(1)
 	return true
+}
+
+func (h *Handler) untrack(session *Session) {
+	h.mu.Lock()
+	delete(h.live, session)
+	h.mu.Unlock()
+	h.links.Done()
 }
 
 // closeReasonFor tells a refused agent whether its credential is gone for good.
@@ -196,7 +219,8 @@ func (r RejectedError) Error() string {
 	return fmt.Sprintf("server refused the link with status %d", r.Status)
 }
 
-// Permanent reports whether retrying with the same credential can never succeed.
+// Permanent reports whether retrying with the same credential is pointless: it is unusable, or
+// another agent holds the claim and this one lost.
 func (r RejectedError) Permanent() bool {
-	return r.Status == http.StatusUnauthorized || r.Status == http.StatusForbidden
+	return r.Status == http.StatusUnauthorized || r.Status == http.StatusForbidden || r.Status == http.StatusConflict
 }

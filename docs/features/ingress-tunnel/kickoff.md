@@ -60,6 +60,13 @@ and never applied by any proof. Nothing in `make tunnel-proof` needs an account.
   every link and ends them all, with status `1001`, before the store closes.
 - **Reserved labels are a claim-time rule only.** The edge applies grammar and the routing
   table, so a reservation added after a claim cannot silently shadow a live tunnel.
+- **Takeovers have a cooldown.** The second review noted the close frame is best effort: a
+  loser that never reads its `4001` reconnects with a valid token and takes the claim back,
+  and two agents flap forever. For one minute after a takeover the server refuses a connect
+  against the live link with `409`, which the agent treats as final.
+- **Secrets are read at every service start**, so rotation is `-replace` plus a restart, and
+  binaries are installed by a script the timer runs, never by a shell loop inside a systemd
+  command line, which systemd would expand first.
 
 ## The deployment pack
 

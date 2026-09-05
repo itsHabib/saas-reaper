@@ -18,14 +18,15 @@ locals {
   ]
   server_digest = sha256(join("", concat(
     [for file in local.server_sources : filesha256("${local.specimen}/${file}")],
-    [filesha256("${local.specimen}/go.mod"), filesha256("${local.specimen}/go.sum")],
+    [filesha256("${local.specimen}/go.mod"), filesha256("${local.specimen}/go.sum"), local.go_arch],
   )))
   caddy_digest = sha256("${var.caddy_version}|${var.caddy_route53_version}|${var.xcaddy_version}|${local.go_arch}")
 
-  server_binary = "${local.build}/reaper-tunnel-${local.go_arch}"
-  caddy_binary  = "${local.build}/caddy-${local.go_arch}"
   server_key    = "reaper-tunnel-${local.go_arch}"
   caddy_key     = "caddy-${local.go_arch}"
+  server_binary = "${local.build}/${local.server_key}"
+  caddy_binary  = "${local.build}/${local.caddy_key}"
+  xcaddy_tool   = "${local.build}/tools/xcaddy"
 
   # An empty allowlist means anywhere; a supplied one becomes one rule per CIDR and nothing else.
   control_sources = length(var.control_cidrs) > 0 ? var.control_cidrs : ["0.0.0.0/0"]
@@ -59,20 +60,34 @@ data "aws_ami" "linux" {
 
 # Both binaries are built here, on the machine running terraform, and shipped through a
 # private bucket. The instance never compiles anything and never fetches from a registry or a
-# vendor's download service; every byte it runs was pinned and built by the apply.
+# vendor's download service; every byte it runs was pinned and built by the apply. A missing
+# artifact is itself a trigger, so a fresh checkout or a second operator rebuilds rather than
+# failing on an absent file.
 resource "terraform_data" "server_binary" {
-  triggers_replace = [local.server_digest]
+  triggers_replace = [local.server_digest, fileexists(local.server_binary)]
   provisioner "local-exec" {
     working_dir = local.specimen
     command     = "mkdir -p ${abspath(local.build)} && CGO_ENABLED=0 GOOS=linux GOARCH=${local.go_arch} go build -trimpath -o ${abspath(local.server_binary)} ./cmd/reaper-tunnel"
   }
 }
 
+# xcaddy is installed natively first and only then asked to cross-compile Caddy; putting the
+# target platform on the tool's own build would produce a Linux xcaddy on a macOS operator.
 resource "terraform_data" "caddy_binary" {
-  triggers_replace = [local.caddy_digest]
+  triggers_replace = [local.caddy_digest, fileexists(local.caddy_binary)]
   provisioner "local-exec" {
     working_dir = local.specimen
-    command     = "mkdir -p ${abspath(local.build)} && CGO_ENABLED=0 GOOS=linux GOARCH=${local.go_arch} go run github.com/caddyserver/xcaddy/cmd/xcaddy@${var.xcaddy_version} build ${var.caddy_version} --with github.com/caddy-dns/route53@${var.caddy_route53_version} --output ${abspath(local.caddy_binary)}"
+    command     = "mkdir -p ${abspath(local.build)}/tools && GOBIN=${abspath(local.build)}/tools go install github.com/caddyserver/xcaddy/cmd/xcaddy@${var.xcaddy_version} && CGO_ENABLED=0 GOOS=linux GOARCH=${local.go_arch} ${abspath(local.xcaddy_tool)} build ${var.caddy_version} --with github.com/caddy-dns/route53@${var.caddy_route53_version} --output ${abspath(local.caddy_binary)}"
+  }
+}
+
+# The host's identity-shaping inputs. Changing one of these deliberately replaces the instance
+# (the state volume survives); nothing else about the boot script does.
+resource "terraform_data" "host_config" {
+  input = {
+    domain      = var.domain
+    acme_email  = var.acme_email
+    admin_actor = var.admin_actor
   }
 }
 
@@ -105,8 +120,9 @@ resource "aws_s3_object" "caddy" {
   depends_on  = [terraform_data.caddy_binary]
 }
 
-# The two API tokens are minted by the apply and kept in Secrets Manager. Rotate one with
-# `terraform apply -replace=random_password.admin_token`; the host picks it up on restart.
+# The two API tokens are minted by the apply and kept in Secrets Manager. The service reads
+# them from Secrets Manager at every start, so rotate one with
+# `terraform apply -replace=random_password.admin_token` and restart the service on the host.
 resource "random_password" "admin_token" {
   length  = 48
   special = false
@@ -230,6 +246,10 @@ resource "aws_ebs_volume" "state" {
   tags = {
     Name = "${var.name}-state"
   }
+  lifecycle {
+    # The volume is the only durable state; a subnet or zone drift must never replace it.
+    ignore_changes = [availability_zone]
+  }
 }
 
 resource "aws_instance" "tunnel" {
@@ -259,8 +279,10 @@ resource "aws_instance" "tunnel" {
   }
   lifecycle {
     # A newer AMI or a changed boot script must never replace the host underneath live tunnels
-    # by itself; recreate deliberately with `terraform apply -replace=aws_instance.tunnel`.
-    ignore_changes = [ami, user_data]
+    # by itself; a changed domain, ACME contact, or actor does, and a deliberate
+    # `terraform apply -replace=aws_instance.tunnel` always can. The state volume survives.
+    ignore_changes       = [ami, user_data]
+    replace_triggered_by = [terraform_data.host_config]
   }
   depends_on = [aws_s3_object.server, aws_s3_object.caddy]
 }

@@ -125,6 +125,12 @@ func (s *Session) farewell(reason tunnel.CloseReason) {
 	case <-acknowledged:
 	case <-time.After(farewellGrace):
 	}
+	s.cut()
+}
+
+// cut ends the link immediately with no farewell; the shutdown deadline uses it.
+func (s *Session) cut() {
+	s.closed.Store(true)
 	_ = s.socket.CloseNow()
 	_ = s.mux.Close()
 }
