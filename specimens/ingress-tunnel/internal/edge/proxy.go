@@ -75,7 +75,9 @@ func New(domain string, router Router, forwardProto string, headerTimeout time.D
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	recorded := &recorder{ResponseWriter: w}
-	subdomain := ""
+	// The subdomain is resolved before anything that can panic, so an aborted response is
+	// attributed to the tunnel it belonged to rather than to no tunnel at all.
+	subdomain, ok := tunnel.HostSubdomain(r.Host, p.domain)
 	defer func() {
 		aborted := recover()
 		p.record(r, subdomain, recorded, started, aborted != nil)
@@ -83,7 +85,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			panic(aborted)
 		}
 	}()
-	subdomain = p.serve(recorded, r)
+	if !ok {
+		refuse(recorded, http.StatusNotFound, "no tunnel is served at this host")
+		return
+	}
+	p.serve(recorded, r, subdomain)
 }
 
 func (p *Proxy) record(r *http.Request, subdomain string, recorded *recorder, started time.Time, aborted bool) {
@@ -112,22 +118,15 @@ func (p *Proxy) record(r *http.Request, subdomain string, recorded *recorder, st
 	)
 }
 
-// serve answers one request and returns the subdomain it named, or nothing when the host
-// resolved to no tunnel.
-func (p *Proxy) serve(w http.ResponseWriter, r *http.Request) string {
-	subdomain, ok := tunnel.HostSubdomain(r.Host, p.domain)
-	if !ok {
-		refuse(w, http.StatusNotFound, "no tunnel is served at this host")
-		return ""
-	}
+// serve answers one request for a resolved subdomain.
+func (p *Proxy) serve(w http.ResponseWriter, r *http.Request, subdomain string) {
 	link, ok := p.router.Lookup(subdomain)
 	if !ok {
 		refuse(w, http.StatusBadGateway, "no agent is connected for this host")
-		return subdomain
+		return
 	}
 	resolved := route{subdomain: subdomain, link: link}
 	p.proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), routeKey{}, resolved)))
-	return subdomain
 }
 
 // rewrite keeps the visitor's Host so the agent can route on it, and stamps the forwarded

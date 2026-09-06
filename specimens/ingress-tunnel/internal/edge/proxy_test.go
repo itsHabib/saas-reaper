@@ -377,7 +377,7 @@ func TestATruncatedResponseIsObservedAsAborted(t *testing.T) {
 		_, _ = io.ReadAll(response.Body)
 		_ = response.Body.Close()
 	}
-	if seen := seenBy.last(t, 1); !seen.Aborted || seen.Status != http.StatusOK {
+	if seen := seenBy.last(t, 1); !seen.Aborted || seen.Status != http.StatusOK || seen.Subdomain != "acme" {
 		t.Fatalf("truncated response observed as %+v", seen)
 	}
 }
