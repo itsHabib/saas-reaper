@@ -84,7 +84,9 @@ The tunnel specimen keeps policy in `internal/tunnel`, the WebSocket-plus-yamux
 control link in `internal/link`, the public reverse-proxy edge in
 `internal/edge`, the customer-side forwarder in `internal/agent`, management
 and read HTTP in `internal/api`, and persistence in `internal/store/sqlite`.
-Only `internal/link` may import the WebSocket or yamux libraries. One lifecycle
+Only `internal/link` may import the WebSocket or yamux libraries, and
+`internal/metrics` may import only the observer contract the edge defines. The
+diagnostics listener that serves metrics and gated pprof binds loopback only. One lifecycle
 table in `tunnel.Transition` decides every status change and the audit rows
 that record it; the exhaustive walk pins three reachable statuses and nine
 edges. A claim insert or revoke commits with its audit rows in one SQLite

@@ -88,6 +88,7 @@ resource "terraform_data" "host_config" {
     domain      = var.domain
     acme_email  = var.acme_email
     admin_actor = var.admin_actor
+    pprof       = var.pprof
   }
 }
 
@@ -198,6 +199,22 @@ resource "aws_iam_role_policy" "instance" {
   })
 }
 
+# The agent ships logs and metrics off the host with the managed agent policy and nothing more.
+resource "aws_iam_role_policy_attachment" "cloudwatch_agent" {
+  role       = aws_iam_role.instance.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
+resource "aws_cloudwatch_log_group" "server" {
+  name              = "/${var.name}/server"
+  retention_in_days = var.log_retention_days
+}
+
+resource "aws_cloudwatch_log_group" "caddy" {
+  name              = "/${var.name}/caddy"
+  retention_in_days = var.log_retention_days
+}
+
 resource "aws_iam_instance_profile" "instance" {
   name = var.name
   role = aws_iam_role.instance.name
@@ -269,6 +286,10 @@ resource "aws_instance" "tunnel" {
     server_key            = local.server_key
     caddy_key             = local.caddy_key
     state_volume_id       = replace(aws_ebs_volume.state.id, "-", "")
+    pprof                 = var.pprof ? "1" : "0"
+    log_group_server      = aws_cloudwatch_log_group.server.name
+    log_group_caddy       = aws_cloudwatch_log_group.caddy.name
+    metrics_namespace     = var.name
   })
   metadata_options {
     http_tokens = "required"

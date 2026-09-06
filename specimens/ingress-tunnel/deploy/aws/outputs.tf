@@ -25,6 +25,11 @@ output "read_token" {
   description = "Read token minted by this apply. Read it with `terraform output -raw read_token`."
 }
 
+output "log_groups" {
+  value       = [aws_cloudwatch_log_group.server.name, aws_cloudwatch_log_group.caddy.name]
+  description = "CloudWatch log groups receiving the server log and Caddy's access logs."
+}
+
 output "claim_example" {
   value       = "curl -X POST https://${var.domain}:8443/v1/tunnels -H \"Authorization: Bearer $(terraform output -raw admin_token)\" -H 'Content-Type: application/json' -d '{\"subdomain\":\"acme\"}'"
   description = "Issue a credential for one subdomain; the token in the response is shown once."

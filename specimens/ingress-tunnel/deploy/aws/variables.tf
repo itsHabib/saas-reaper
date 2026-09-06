@@ -70,6 +70,18 @@ variable "subnet_id" {
   description = "Public subnet for the host. Defaults to the first subnet of the chosen VPC."
 }
 
+variable "pprof" {
+  type        = bool
+  default     = false
+  description = "Open the Go pprof endpoints on the host's loopback diagnostics port. Off unless you are profiling; it is never reachable from outside the host either way."
+}
+
+variable "log_retention_days" {
+  type        = number
+  default     = 30
+  description = "Retention for the CloudWatch log groups that receive the server and Caddy access logs."
+}
+
 variable "state_volume_gib" {
   type        = number
   default     = 1
