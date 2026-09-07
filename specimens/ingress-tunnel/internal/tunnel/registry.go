@@ -57,6 +57,15 @@ func (r *Registry) Attach(subdomain string, link Link, generation uint64) Link {
 	return previous.link
 }
 
+// matches checks ownership without changing presence. The service holds its lifecycle lock
+// across this check, the audit commit, and Detach, so a failed audit remains retryable.
+func (r *Registry) matches(subdomain string, generation uint64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current, ok := r.live[subdomain]
+	return ok && current.generation == generation
+}
+
 // Detach removes the attachment only when generation still identifies it. It reports whether
 // the table changed, which is what decides whether a disconnection is audited.
 func (r *Registry) Detach(subdomain string, generation uint64) bool {

@@ -52,7 +52,7 @@ runnable proofs and a validated deployment pack.
 
 - Stop if the nested module requires root import coupling, a `go.work`, or factory capability changes.
 - Stop before any non-loopback proof dependency, cloud account, applied infrastructure, Gate invocation, or merge.
-- Stop after two review-fix rounds even if a broader architectural finding remains.
+- Two review-fix rounds are exhausted; the operator permits only genuinely new reviewer findings.
 
 ## Evidence
 
@@ -64,5 +64,5 @@ runnable proofs and a validated deployment pack.
 
 ## Handoff
 
-- Last: both allowed review rounds folded; residual notes are recorded in the pull request.
+- Last: four previously unrecorded Codex findings on 027674a verified: loss audit ordering, read join serialization, architecture replacement, and cross-zone volume refusal. Targeted regressions pass, old policy fails both negative controls; make check and all three tunnel proofs pass.
 - Next: CI green on the reviewed head, then stop without Gate or merge; Codex re-review when its quota returns is the operator's call.

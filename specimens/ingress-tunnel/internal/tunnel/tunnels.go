@@ -204,15 +204,16 @@ func (c Connection) Lost(ctx context.Context) error {
 	s := c.service
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.registry.Detach(c.Subdomain, c.generation) {
+	if !s.registry.matches(c.Subdomain, c.generation) {
 		return nil
 	}
-	delete(s.superseded, c.Subdomain)
 	outcome := Transition(Status{Claim: ClaimActive, Presence: PresenceLive}, EventLinkLost)
 	entries := s.entries(outcome.Audit, c.Subdomain, s.now().UTC(), AgentActor(c.Subdomain), fmt.Sprintf("generation %d", c.generation))
 	if err := s.store.AppendAudit(ctx, entries); err != nil {
 		return fmt.Errorf("record disconnect %s: %w", c.Subdomain, err)
 	}
+	s.registry.Detach(c.Subdomain, c.generation)
+	delete(s.superseded, c.Subdomain)
 	return nil
 }
 
@@ -228,6 +229,8 @@ type View struct {
 
 // Tunnels lists every claim with its current presence and without any credential material.
 func (s *Service) Tunnels(ctx context.Context) ([]View, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	claims, err := s.store.ListClaims(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list tunnels: %w", err)

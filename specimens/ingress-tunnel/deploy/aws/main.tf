@@ -85,9 +85,10 @@ resource "terraform_data" "caddy_binary" {
 # (the state volume survives); nothing else about the boot script does.
 resource "terraform_data" "host_config" {
   input = {
-    domain      = var.domain
-    acme_email  = var.acme_email
-    admin_actor = var.admin_actor
+    architecture = var.architecture
+    domain       = var.domain
+    acme_email   = var.acme_email
+    admin_actor  = var.admin_actor
   }
 }
 
@@ -283,6 +284,10 @@ resource "aws_instance" "tunnel" {
     # `terraform apply -replace=aws_instance.tunnel` always can. The state volume survives.
     ignore_changes       = [ami, user_data]
     replace_triggered_by = [terraform_data.host_config]
+    precondition {
+      condition     = data.aws_subnet.chosen.availability_zone == aws_ebs_volume.state.availability_zone
+      error_message = "The retained claims volume cannot move across availability zones. Choose a subnet in its existing zone or explicitly migrate a snapshot before changing zones."
+    }
   }
   depends_on = [aws_s3_object.server, aws_s3_object.caddy]
 }

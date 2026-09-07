@@ -27,6 +27,7 @@ terraform -chdir=deploy/aws fmt -check
 rsync -a --exclude .terraform --exclude .build ./ "$work_dir/specimen/"
 terraform -chdir="$work_dir/specimen/deploy/aws" init -backend=false -input=false -no-color > /dev/null
 terraform -chdir="$work_dir/specimen/deploy/aws" validate -no-color > /dev/null
+terraform -chdir="$work_dir/specimen/deploy/aws" test -no-color
 shellcheck deploy/aws/user-data.sh
 
 # The pack cross-compiles the server for the instance; prove the build the apply will run.

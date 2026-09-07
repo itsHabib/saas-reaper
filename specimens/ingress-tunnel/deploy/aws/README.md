@@ -98,8 +98,10 @@ address until something needs to be public.
 - The service reads both tokens from Secrets Manager before every start, so tokens rotate
   with `terraform apply -replace=random_password.admin_token` followed by
   `systemctl restart reaper-tunnel` on the host.
-- Changing `domain`, `acme_email`, or `admin_actor` replaces the instance on purpose; the
-  state volume and its claims survive. Every other input change leaves the host alone.
+- Changing `architecture`, `domain`, `acme_email`, or `admin_actor` replaces the instance on purpose; the
+  state volume and its claims survive. Match `instance_type` to the selected architecture.
+  A subnet change across availability zones is rejected before replacing the host; migrate
+  a snapshot explicitly when moving zones. Other replacement behavior follows the provider.
 
 ## What the pack does not do
 
