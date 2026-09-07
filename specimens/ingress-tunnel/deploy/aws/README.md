@@ -56,6 +56,14 @@ reaper-tunnel-agent
 `https://acme.tunnel.example.com` now reaches their port 3000. Revoking the claim closes the
 link immediately and the token never works again.
 
+For a custom VPC, supply both `vpc_id` and an explicit public `subnet_id` with an
+Internet Gateway default route. The pack refuses automatic subnet selection in custom VPCs.
+
+Caddy runs as UID/GID 65531; the tunnel service runs as 65532. Its credential file and
+claims directory are inaccessible to Caddy through ordinary filesystem permissions. Both
+processes still share the instance IAM role through metadata; this is not complete isolation
+against arbitrary code execution in either process.
+
 ## Who may reach it
 
 Two allowlists, both optional, both enforced by the security group before a packet reaches

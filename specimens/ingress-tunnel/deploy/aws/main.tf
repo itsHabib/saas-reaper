@@ -85,6 +85,7 @@ resource "terraform_data" "caddy_binary" {
 # (the state volume survives); nothing else about the boot script does.
 resource "terraform_data" "host_config" {
   input = {
+    caddy_uid    = 65531
     architecture = var.architecture
     domain       = var.domain
     acme_email   = var.acme_email
@@ -284,6 +285,10 @@ resource "aws_instance" "tunnel" {
     # `terraform apply -replace=aws_instance.tunnel` always can. The state volume survives.
     ignore_changes       = [ami, user_data]
     replace_triggered_by = [terraform_data.host_config]
+    precondition {
+      condition     = var.vpc_id == null || var.subnet_id != null
+      error_message = "A custom VPC requires an explicit public subnet_id with an Internet Gateway route; automatic subnet selection is only supported for the default VPC."
+    }
     precondition {
       condition     = data.aws_subnet.chosen.availability_zone == aws_ebs_volume.state.availability_zone
       error_message = "The retained claims volume cannot move across availability zones. Choose a subnet in its existing zone or explicitly migrate a snapshot before changing zones."

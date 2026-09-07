@@ -288,3 +288,26 @@ type failingLink struct{}
 
 func (failingLink) Open(context.Context) (net.Conn, error) { return nil, net.ErrClosed }
 func (failingLink) Close(tunnel.CloseReason) error         { return nil }
+
+func TestForwardingAliasesAreRemovedForPublicAndLoopbackPeers(t *testing.T) {
+	for _, peer := range []string{"198.51.100.3:4444", "127.0.0.1:4444"} {
+		in := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://acme.example.com/callback", nil)
+		in.RemoteAddr = peer
+		aliases := []string{"X-Real-IP", "True-Client-IP", "CF-Connecting-IP", "Fastly-Client-IP", "X-Forwarded-Port", "X-Forwarded-Server", "X-Original-Forwarded-For", "Client-IP"}
+		for _, name := range aliases {
+			in.Header.Set(name, "spoofed")
+		}
+		in.Header.Set("X-Slack-Signature", "v0=untouched")
+		out := in.Clone(context.Background())
+		p := &Proxy{forward: "https"}
+		p.rewrite(&httputil.ProxyRequest{In: in, Out: out})
+		for _, name := range aliases {
+			if out.Header.Get(name) != "" {
+				t.Errorf("peer %s preserved %s", peer, name)
+			}
+		}
+		if out.Header.Get("X-Slack-Signature") != "v0=untouched" {
+			t.Fatal("application signature changed")
+		}
+	}
+}

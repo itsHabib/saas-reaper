@@ -91,6 +91,7 @@ func (p *Proxy) rewrite(request *httputil.ProxyRequest) {
 	resolved, _ := request.In.Context().Value(routeKey{}).(route)
 	request.SetURL(&url.URL{Scheme: "http", Host: resolved.subdomain + ".tunnel.internal"})
 	request.Out.Host = request.In.Host
+	stripForwardingAliases(request.Out.Header)
 	if chain := trustedForwardedFor(request.In); len(chain) > 0 {
 		request.Out.Header["X-Forwarded-For"] = chain
 	}
@@ -148,4 +149,22 @@ func refuse(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+// stripForwardingAliases leaves one supported identity contract: the forwarded triple
+// rebuilt by rewrite. Common vendor aliases must never carry a visitor-supplied identity.
+func stripForwardingAliases(header http.Header) {
+	for name := range header {
+		if strings.HasPrefix(strings.ToLower(name), "x-forwarded-") {
+			header.Del(name)
+		}
+	}
+	for _, name := range []string{
+		"Forwarded", "X-Real-IP", "X-Client-IP", "Client-IP", "True-Client-IP",
+		"CF-Connecting-IP", "CF-Connecting-IPv6", "Fastly-Client-IP",
+		"X-Cluster-Client-IP", "X-Originating-IP", "X-Remote-IP", "X-Remote-Addr",
+		"X-Original-Forwarded-For", "Front-End-Https", "X-Url-Scheme",
+	} {
+		header.Del(name)
+	}
 }

@@ -65,4 +65,4 @@ runnable proofs and a validated deployment pack.
 ## Handoff
 
 - Last: four previously unrecorded Codex findings on 027674a verified: loss audit ordering, read join serialization, architecture replacement, and cross-zone volume refusal. Targeted regressions pass, old policy fails both negative controls; make check and all three tunnel proofs pass.
-- Next: CI green on the reviewed head, then stop without Gate or merge; Codex re-review when its quota returns is the operator's call.
+- Next: push the verified fixes and stop without Gate or merge. Codex completed the requested review on 2026-09-07; its three new findings (forwarding aliases, shared Caddy UID, implicit custom-VPC subnet) are verified and folded, with make check and all three tunnel proofs passing.

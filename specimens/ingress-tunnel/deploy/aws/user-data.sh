@@ -11,7 +11,7 @@ state_volume='/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol${state_volume_
 lib=/usr/local/lib/reaper-tunnel
 
 install -d -m 0755 /etc/caddy
-install -d -m 0750 -o 65532 -g 65532 /var/lib/caddy
+install -d -m 0750 -o 65531 -g 65531 /var/lib/caddy
 install -d -m 0755 "$lib"
 
 # The claims database lives on the separate state volume, which outlives this instance.
@@ -181,8 +181,8 @@ After=network-online.target reaper-tunnel.service
 Wants=network-online.target
 
 [Service]
-User=65532
-Group=65532
+User=65531
+Group=65531
 Environment=XDG_DATA_HOME=/var/lib
 Environment=XDG_CONFIG_HOME=/var/lib
 ExecStart=/usr/local/bin/caddy run --config /etc/caddy/Caddyfile --adapter caddyfile

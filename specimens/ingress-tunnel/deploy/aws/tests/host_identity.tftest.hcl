@@ -49,3 +49,15 @@ run "reject_cross_zone_volume" {
   }
   expect_failures = [aws_instance.tunnel]
 }
+
+run "custom_vpc_requires_subnet" {
+  command = plan
+  variables {
+    subnet_id = null
+  }
+  override_data {
+    target = data.aws_subnets.chosen[0]
+    values = { ids = ["subnet-0123456789abcdef0"] }
+  }
+  expect_failures = [aws_instance.tunnel]
+}
