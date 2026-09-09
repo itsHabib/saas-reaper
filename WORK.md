@@ -41,9 +41,12 @@ Publish an honest experiment and live acceptance plan in a draft PR.
 - Verified: official DNS delegation and Universal SSL documentation falsify the unchanged-domain candidate.
 - Verified: make check and make -C specimens/ingress-tunnel demo invariants deploy-check pass.
 - Verified: Bash syntax, ShellCheck, and controlled curl responses cover reachable HTTP rejection, network failure, empty HTTP response, and missing opt-in.
-- Live IPv6 acceptance of a separate first-level-host candidate remains unperformed.
+- Verified: coordinating agent reports isolated no-public-IPv4 E2 boot, first-level TLS, IPv4-forced agent/WSS, exact body, signed fixture callbacks, streaming, access rejection and telemetry. See sanitized LIVE-VALIDATION.md.
+- Verified: post-reboot transport/security suite passed; certificates retained, services active, claim revoked and local fixtures stopped.
+- Verified: coordinating agent removed experimental cloud/DNS resources and OS Login key; original delegation remained and original pilot strict-TLS health returned 200.
+- Remaining production acceptance and current-pilot IPv4 release are not completed.
 
 ## Handoff
 
-- Last: completed sourced feasibility report, probe, positive/negative checks, and existing tunnel proofs.
-- Next: review the draft and choose the isolated live candidate; live experimentation remains separately coordinated.
+- Last: added sanitized evidence of the bounded live two-hostname experiment; supported deployment defaults remain unchanged.
+- Next: review the sanitized evidence and packaging gaps before any production cutover.
