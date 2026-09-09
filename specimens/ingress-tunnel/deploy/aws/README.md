@@ -111,6 +111,18 @@ address until something needs to be public.
   A subnet change across availability zones is rejected before replacing the host; migrate
   a snapshot explicitly when moving zones. Other replacement behavior follows the provider.
 
+## What you can see
+
+- `/<name>/server` in CloudWatch Logs carries the tunnel server's structured log, including
+  one access line per proxied request.
+- `/<name>/caddy` carries Caddy's JSON access logs for the edge and the control port: the
+  outermost view, with the real client address, TLS details, and hosts the Go edge never saw.
+- The `<name>` metrics namespace carries every `reaper_tunnel_*` series, by subdomain, scraped
+  once a minute from the loopback diagnostics port.
+- `-var pprof=true` opens the Go profiler on that loopback port for a session on the host
+  (`ssh` or SSM, then `go tool pprof http://127.0.0.1:8082/debug/pprof/profile`). It changes
+  the host configuration, so the apply replaces the instance; the state volume survives.
+
 ## What the pack does not do
 
 - It does not put a company identity provider in front of visitor traffic. Within

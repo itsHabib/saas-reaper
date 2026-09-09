@@ -89,6 +89,28 @@ the pack's `control_cidrs` is your machines, `edge_cidrs` is whoever may reach t
 - `internal/api` is the management and read transport; `internal/store/sqlite` persists claims
   and audit; `cmd/reaper-tunnel` and `cmd/reaper-tunnel-agent` are the composition roots.
 
+## Observability
+
+Three surfaces, all on the host, none reachable from outside it:
+
+- **Access log.** The edge writes one structured line per request: subdomain, host, method,
+  path, status, bytes, duration, whether it was a WebSocket upgrade, and the peer address.
+  Refusals are logged the same way, so a scan of nonexistent names is visible.
+- **Metrics.** A Prometheus endpoint on the loopback diagnostics listener
+  (`REAPER_TUNNEL_DIAG_ADDR`, default `127.0.0.1:8082`): live links, requests and bytes per
+  subdomain by status class, request duration, upgrades, responses abandoned mid-body,
+  stream-open latency, and stream-open failures, plus the Go runtime and process collectors. A
+  response the standard proxy abandons is still recorded, as aborted, because the observation
+  is deferred past the proxy's abort. Unresolvable hosts are grouped under
+  the `none` subdomain so an enumeration attempt is one series, not thousands.
+- **pprof.** Mounted on the same listener only when `REAPER_TUNNEL_PPROF=1`. The server
+  refuses a diagnostics address that is not loopback, so neither surface can be exposed by a
+  configuration slip.
+
+The AWS pack writes the server log and Caddy's JSON access logs to files, ships them to two
+CloudWatch log groups, and scrapes the metrics endpoint into a CloudWatch namespace, so an
+instance replacement loses no history.
+
 ## The lifecycle table
 
 One table in `tunnel.Transition` decides every status change and the audit rows that record

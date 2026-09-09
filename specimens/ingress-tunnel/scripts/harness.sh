@@ -13,6 +13,9 @@ proof_label=${proof_label:-tunnel proof}
 domain=tunnel.test
 control_port=19500
 edge_port=19501
+diag_port=19504
+# pprof is closed unless a proof opens it for one boot.
+pprof=${pprof:-0}
 # shellcheck disable=SC2034 # the sourcing proofs pick their origin ports from here
 acme_target_port=19502
 # shellcheck disable=SC2034
@@ -180,6 +183,8 @@ boot_server() {
     REAPER_TUNNEL_READ_TOKEN=$read_token \
     REAPER_TUNNEL_FORWARD_PROTO=http \
     REAPER_TUNNEL_KEEPALIVE=200ms \
+    REAPER_TUNNEL_DIAG_ADDR="127.0.0.1:$diag_port" \
+    REAPER_TUNNEL_PPROF="$pprof" \
     "$work_dir/reaper-tunnel" >> "$work_dir/server.log" 2>&1 &
   server_pid=$!
   pids+=("$server_pid")
@@ -317,6 +322,14 @@ wait_edge() {
 
 serves_name() {
   [[ "$(whoami_field "$1" name 2> /dev/null || true)" == "$2" ]]
+}
+
+metrics() {
+  curl --fail --silent --show-error "http://127.0.0.1:$diag_port/metrics"
+}
+
+diag_status() {
+  curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$diag_port$1"
 }
 
 whoami_field() {

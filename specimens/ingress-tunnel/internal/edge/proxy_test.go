@@ -77,7 +77,7 @@ func (t table) Lookup(subdomain string) (tunnel.Link, bool) {
 
 func startEdge(t *testing.T, routes table) *httptest.Server {
 	t.Helper()
-	proxy, err := New("tunnel.test", routes, "https", 5*time.Second, slog.New(slog.DiscardHandler))
+	proxy, err := New("tunnel.test", routes, "https", 5*time.Second, NoObserver{}, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,13 +115,13 @@ func observer(name string) http.Handler {
 
 func TestNewValidatesItsInputs(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
-	if _, err := New(" ", table{}, "https", time.Second, logger); err == nil {
+	if _, err := New(" ", table{}, "https", time.Second, NoObserver{}, logger); err == nil {
 		t.Fatal("blank domain accepted")
 	}
-	if _, err := New("tunnel.test", table{}, "ftp", time.Second, logger); err == nil {
+	if _, err := New("tunnel.test", table{}, "ftp", time.Second, NoObserver{}, logger); err == nil {
 		t.Fatal("bad forwarded proto accepted")
 	}
-	if _, err := New("tunnel.test", table{}, "https", 0, logger); err == nil {
+	if _, err := New("tunnel.test", table{}, "https", 0, NoObserver{}, logger); err == nil {
 		t.Fatal("zero timeout accepted")
 	}
 }
@@ -209,7 +209,7 @@ func TestForwardedForIsAppendedBehindALoopbackFrontAndDroppedOtherwise(t *testin
 		in.Header.Set("X-Forwarded-For", "203.0.113.9")
 		out := in.Clone(in.Context())
 		out.Header.Del("X-Forwarded-For")
-		proxy, err := New("tunnel.test", table{}, "https", time.Second, slog.New(slog.DiscardHandler))
+		proxy, err := New("tunnel.test", table{}, "https", time.Second, NoObserver{}, slog.New(slog.DiscardHandler))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -273,6 +273,166 @@ func TestWebSocketUpgradesSurviveTheTunnel(t *testing.T) {
 	_, reply, err := socket.Read(ctx)
 	if err != nil || string(reply) != "echo:ping" {
 		t.Fatalf("reply = %q, %v", reply, err)
+	}
+}
+
+// memoryObserver records what the edge reports so the tests can assert on it.
+type memoryObserver struct {
+	mu       sync.Mutex
+	requests []Observation
+	opens    []StreamOpen
+}
+
+func (m *memoryObserver) Request(observation Observation) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.requests = append(m.requests, observation)
+}
+
+func (m *memoryObserver) StreamOpen(open StreamOpen) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.opens = append(m.opens, open)
+}
+
+// last waits for the observer to have seen at least count requests and returns the newest.
+// The edge records after its handler returns, which can be after the visitor has the response.
+func (m *memoryObserver) last(t *testing.T, count int) Observation {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		m.mu.Lock()
+		if len(m.requests) >= count {
+			defer m.mu.Unlock()
+			return m.requests[len(m.requests)-1]
+		}
+		m.mu.Unlock()
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("observed fewer than %d requests", count)
+	return Observation{}
+}
+
+func TestEveryOutcomeIsObservedOnce(t *testing.T) {
+	seenBy := &memoryObserver{}
+	proxy, err := New("tunnel.test", table{"acme": &pipeLink{handler: observer("acme")}}, "https", 5*time.Second, seenBy, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(proxy)
+	defer server.Close()
+	get(t, server, "acme.tunnel.test", "/whoami")
+	seen := seenBy.last(t, 1)
+	if seen.Subdomain != "acme" || seen.Status != http.StatusOK || seen.Bytes == 0 || seen.Upgraded || seen.Duration <= 0 {
+		t.Fatalf("proxied request observed as %+v", seen)
+	}
+	if len(seenBy.opens) != 1 || seenBy.opens[0].Subdomain != "acme" || seenBy.opens[0].Err != nil {
+		t.Fatalf("stream opens = %+v", seenBy.opens)
+	}
+	get(t, server, "ghost.tunnel.test", "/")
+	if seen := seenBy.last(t, 2); seen.Subdomain != "ghost" || seen.Status != http.StatusBadGateway {
+		t.Fatalf("offline request observed as %+v", seen)
+	}
+	get(t, server, "tunnel.test", "/")
+	if seen := seenBy.last(t, 3); seen.Subdomain != "" || seen.Status != http.StatusNotFound {
+		t.Fatalf("unresolvable host observed as %+v", seen)
+	}
+	if len(seenBy.requests) != 3 {
+		t.Fatalf("observed %d requests, want 3", len(seenBy.requests))
+	}
+}
+
+// truncatingLink answers with a body shorter than it promised, which makes the standard proxy
+// abandon the response the way a stream that dies mid-copy does.
+type truncatingLink struct{}
+
+func (truncatingLink) Open(context.Context) (net.Conn, error) {
+	client, server := net.Pipe()
+	go func() {
+		defer func() { _ = server.Close() }()
+		buffer := make([]byte, 4096)
+		_, _ = server.Read(buffer)
+		_, _ = io.WriteString(server, "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nhello")
+	}()
+	return client, nil
+}
+
+func (truncatingLink) Close(tunnel.CloseReason) error { return nil }
+
+func TestATruncatedResponseIsObservedAsAborted(t *testing.T) {
+	seenBy := &memoryObserver{}
+	proxy, err := New("tunnel.test", table{"acme": truncatingLink{}}, "https", 5*time.Second, seenBy, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(proxy)
+	defer server.Close()
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL+"/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Host = "acme.tunnel.test"
+	response, err := server.Client().Do(request)
+	if err == nil {
+		_, _ = io.ReadAll(response.Body)
+		_ = response.Body.Close()
+	}
+	if seen := seenBy.last(t, 1); !seen.Aborted || seen.Status != http.StatusOK || seen.Subdomain != "acme" {
+		t.Fatalf("truncated response observed as %+v", seen)
+	}
+}
+
+func TestInformationalResponsesDoNotSettleTheStatus(t *testing.T) {
+	seenBy := &memoryObserver{}
+	hinting := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Add("Link", "</style.css>; rel=preload; as=style")
+		w.WriteHeader(http.StatusEarlyHints)
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "body")
+	})
+	proxy, err := New("tunnel.test", table{"acme": &pipeLink{handler: hinting}}, "https", 5*time.Second, seenBy, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(proxy)
+	defer server.Close()
+	response := get(t, server, "acme.tunnel.test", "/")
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("visitor status = %d", response.StatusCode)
+	}
+	if seen := seenBy.last(t, 1); seen.Status != http.StatusOK {
+		t.Fatalf("early hints settled the recorded status: %+v", seen)
+	}
+}
+
+func TestAnUpgradeIsObservedAsSuch(t *testing.T) {
+	seenBy := &memoryObserver{}
+	echo := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		socket, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+		if err != nil {
+			return
+		}
+		_ = socket.Close(websocket.StatusNormalClosure, "")
+	})
+	proxy, err := New("tunnel.test", table{"acme": &pipeLink{handler: echo}}, "https", 5*time.Second, seenBy, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(proxy)
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	socket, response, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/ws", &websocket.DialOptions{Host: "acme.tunnel.test"})
+	if response != nil && response.Body != nil {
+		defer func() { _ = response.Body.Close() }()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, _ = socket.Read(ctx)
+	_ = socket.CloseNow()
+	if seen := seenBy.last(t, 1); !seen.Upgraded || seen.Status != http.StatusSwitchingProtocols {
+		t.Fatalf("upgrade observed as %+v", seen)
 	}
 }
 
