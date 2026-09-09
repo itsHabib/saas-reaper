@@ -219,7 +219,17 @@ jq -n \
   '{ada: $ada, linus: $linus}' > "$work_dir/secrets.json"
 
 management --request POST --data @fixtures/schedule.json "$base_url/v1/schedules" > /dev/null
-management --request POST --data @fixtures/escalation-policy.json "$base_url/v1/escalation-policies" > /dev/null
+# Keep the historical schedule for the explicit calendar assertions below.
+# Paging needs its own run-relative rotation so Ada owns the first slot every week.
+jq --arg start "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  '.id = "payments-proof" | .layers[0].start = $start | .overrides = []' \
+  fixtures/schedule.json > "$work_dir/paging-schedule.json"
+management --request POST --data @"$work_dir/paging-schedule.json" "$base_url/v1/schedules" > /dev/null
+jq '.levels[0].schedules = ["payments-proof"]' \
+  fixtures/escalation-policy.json > "$work_dir/paging-policy.json"
+management --request POST --data @"$work_dir/paging-policy.json" "$base_url/v1/escalation-policies" > /dev/null
+read_api "$base_url/v1/schedules/payments-proof/on-call" |
+  jq -e '.responder == "ada"' > /dev/null || fail "the paging schedule did not select Ada"
 management --request POST \
   --data '{"id":"payments","name":"Payments API","escalationPolicy":"payments-ladder"}' \
   "$base_url/v1/services" > "$work_dir/service.json"
