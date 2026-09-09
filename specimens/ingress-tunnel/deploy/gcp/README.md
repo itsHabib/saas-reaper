@@ -99,8 +99,9 @@ See [the Slack pilot checklist](SLACK-PILOT.md) before switching the real app.
 - The host installs Debian packages at boot. Server, Caddy, xcaddy and the DNS module are
   built locally with explicit pins; OS packages and certificate issuance require network access.
 
-For the bounded investigation into removing the IPv4 charge, see the
-[IPv6 feasibility experiment](../../experiments/ipv6/README.md). It is not a supported deployment mode.
+An opt-in [IPv6 origin mode](IPV6.md) uses exact first-level hostnames behind
+Cloudflare and preserves the direct IPv4 default. Read its manual Cloudflare
+setup, origin authentication and migration validation requirements before applying.
 
 ## Cost target
 

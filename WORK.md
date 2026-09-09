@@ -10,7 +10,8 @@ Stop-at: operator-decision
 
 Determine whether the GCP tunnel can omit public IPv4 without paid NAT while
 preserving IPv4-client access, transport behavior, and authority boundaries.
-Publish an honest experiment and live acceptance plan in a draft PR.
+Package an opt-in exact-host IPv6 deployment and its proofs in a draft PR; the
+coordinating agent owns live validation and any approved migration.
 
 ## Preserve
 
@@ -21,7 +22,8 @@ Publish an honest experiment and live acceptance plan in a draft PR.
 ## Change
 
 - `specimens/ingress-tunnel/experiments/ipv6/`: sourced feasibility result and opt-in public egress probe.
-- `specimens/ingress-tunnel/deploy/gcp/README.md`: link the experiment.
+- `specimens/ingress-tunnel/deploy/gcp/`: opt-in IPv6 mode, static address, retained migration reservation, origin secret, Caddy policy, mock tests and setup guide.
+- `specimens/ingress-tunnel/scripts/`: render and exercise both deployment modes on loopback.
 - `WORK.md`: current bounded outcome and evidence.
 
 ## Prove
@@ -39,7 +41,7 @@ Publish an honest experiment and live acceptance plan in a draft PR.
 ## Evidence
 
 - Verified: official DNS delegation and Universal SSL documentation falsify the unchanged-domain candidate.
-- Verified: make check and make -C specimens/ingress-tunnel demo invariants deploy-check pass.
+- Verified: make check and all three tunnel proofs pass after packaging; 16 GCP mocks and actual Caddy origin-auth/visitor/forwarding/log/no-store tests pass.
 - Verified: Bash syntax, ShellCheck, and controlled curl responses cover reachable HTTP rejection, network failure, empty HTTP response, and missing opt-in.
 - Verified: coordinating agent reports isolated no-public-IPv4 E2 boot, first-level TLS, IPv4-forced agent/WSS, exact body, signed fixture callbacks, streaming, access rejection and telemetry. See sanitized LIVE-VALIDATION.md.
 - Verified: post-reboot transport/security suite passed; certificates retained, services active, claim revoked and local fixtures stopped.
@@ -48,5 +50,5 @@ Publish an honest experiment and live acceptance plan in a draft PR.
 
 ## Handoff
 
-- Last: added sanitized evidence of the bounded live two-hostname experiment; supported deployment defaults remain unchanged.
-- Next: review the sanitized evidence and packaging gaps before any production cutover.
+- Last: implemented opt-in packaging with origin authentication, visitor CIDRs, finite hostnames and migration reservation retention.
+- Next: coordinating agent reviews and validates the exact packaged live plan before any IPv4 release.

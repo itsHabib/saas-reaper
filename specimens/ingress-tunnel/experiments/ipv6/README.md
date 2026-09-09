@@ -3,8 +3,8 @@
 Status: **two exact first-level hostnames passed a bounded live IPv6 experiment**.
 The unchanged delegated-domain deployment plus free Cloudflare proxy remains
 nonviable. This PR contains research, sanitized [live evidence](LIVE-VALIDATION.md),
-and an opt-in egress probe, not a new Terraform pack. Supported deployment defaults
-remain unchanged. Source review date: 2026-09-08. Remaining live acceptance below
+and an opt-in egress probe. The [GCP IPv6 mode](../../deploy/gcp/IPV6.md) now packages
+the exact-host design with origin authentication; direct IPv4 defaults remain unchanged. Source review date: 2026-09-08. Remaining live acceptance below
 is not implied by the successful subset.
 
 ## Hypothesis and result
@@ -161,4 +161,5 @@ A recurring add-on above $3.65/month alone erases the entire IPv4 saving. Obtain
 an actual certificate quote; this PR does not assert an unverified add-on price.
 The existing delegated names plus free parent certificate already fail the
 hypothesis. The two-exact-host candidate has passed bounded live transport checks,
-but a reusable IPv6 pack and migration of the existing pilot remain **unproven**.
+but live validation of the reusable IPv6 pack and migration of the existing pilot
+remain separate acceptance steps.
