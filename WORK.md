@@ -49,9 +49,10 @@ coordinating agent owns live validation and any approved migration.
 - Verified: coordinating agent removed experimental cloud/DNS resources and OS Login key; original delegation remained and original pilot strict-TLS health returned 200.
 - Verified: packaged mode 0c73702 passed live reboot, VM replacement, secret rotation, origin/cache/forwarding rejection, static IPv6 and certificate/claim retention; no-drift exit 0.
 - Verified: separate plan removed only the old IPv4 reservation; apply passed, health returned 200, and only static external IPv6 remained.
-- Final temporary diagnostic cleanup and remaining long-duration/real-app/billing acceptance are separate.
+- Verified: post-release suite passed; probe revoked, agent/fixtures stopped, temporary IAP/OS Login access and empty former DNS zone/delegation removed. Pre-migration snapshot intentionally retained.
+- Long-duration, real-app, renewal and measured-billing acceptance remain separate.
 
 ## Handoff
 
 - Last: published opt-in packaging and the default-log redaction fix; coordinating agent validated replacement and removed the old IPv4 reservation.
-- Next: review live evidence, confirm temporary diagnostic cleanup, and assess remaining real-app/renewal/billing acceptance.
+- Next: review live evidence and assess remaining real-app/renewal/billing acceptance.

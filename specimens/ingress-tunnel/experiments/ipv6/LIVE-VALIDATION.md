@@ -141,8 +141,17 @@ release plan deleted only the old IPv4 reservation; its apply completed
 successfully. Post-release health returned HTTP 200 and the address inventory
 contained only the static external IPv6 reservation. The old IPv4 hourly charge
 has therefore been removed from this deployment; a measured bill is still pending.
-Temporary diagnostic access/test fixtures and an empty former DNS zone are being
-cleaned up separately; their final cleanup is not claimed here.
+The post-release full suite passed again: 1 MiB in 1.729 seconds, signed callback
+in 0.368 seconds, streaming first data at 0.337 seconds and completion at 1.547
+seconds, with all transport, security and cache assertions passing.
+
+Final cleanup was confirmed: the synthetic probe claim was revoked and the agent
+exited on revocation; local target/proxy fixtures stopped. The temporary IAP
+firewall and experiment-specific OS Login key were removed. The former Cloud DNS
+parent zone, verified empty except for NS/SOA, was deleted. Precisely its four
+retired parent delegation NS records were removed from Cloudflare, leaving the
+three new proxied AAAA records. The pre-migration state snapshot was retained
+intentionally for recovery; snapshot/storage cost is not zeroed by IPv4 release.
 
 Remaining acceptance includes certificate renewal, sustained load, real Slack
 and work-network use, measured billing and cross-zone recovery. Exact-host mode
