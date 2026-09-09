@@ -15,7 +15,7 @@ coordinating agent owns live validation and any approved migration.
 
 ## Preserve
 
-- Existing deployment defaults, runtime, DNS, IPv4 address, and private Terraform state.
+- Existing direct IPv4 defaults and private Terraform state; live migration and address release belong to the coordinating agent after validation.
 - Independent tunnel module, loopback-only proofs, separate credentials and scoped DNS authority.
 - Public artifacts use generic examples and contain no operator identifiers or secrets.
 
@@ -34,7 +34,8 @@ coordinating agent owns live validation and any approved migration.
 
 ## Stop
 
-- No infrastructure apply, DNS/firewall changes, IPv4 release, Slack cutover, or merge.
+- Implementation worker: no infrastructure apply, DNS/firewall changes, IPv4 release, Slack cutover, or merge.
+- The operator separately authorized the coordinating agent to validate and migrate the live deployment after checks; this document does not transfer that authority to the worker.
 - No paid NAT or expanded host DNS authority to force feasibility.
 - The delegated deep-hostname configuration fails free Universal SSL coverage; do not claim it works.
 
@@ -46,9 +47,11 @@ coordinating agent owns live validation and any approved migration.
 - Verified: coordinating agent reports isolated no-public-IPv4 E2 boot, first-level TLS, IPv4-forced agent/WSS, exact body, signed fixture callbacks, streaming, access rejection and telemetry. See sanitized LIVE-VALIDATION.md.
 - Verified: post-reboot transport/security suite passed; certificates retained, services active, claim revoked and local fixtures stopped.
 - Verified: coordinating agent removed experimental cloud/DNS resources and OS Login key; original delegation remained and original pilot strict-TLS health returned 200.
-- Remaining production acceptance and current-pilot IPv4 release are not completed.
+- Verified: packaged mode 0c73702 passed live reboot, VM replacement, secret rotation, origin/cache/forwarding rejection, static IPv6 and certificate/claim retention; no-drift exit 0.
+- Verified: separate plan removed only the old IPv4 reservation; apply passed, health returned 200, and only static external IPv6 remained.
+- Final temporary diagnostic cleanup and remaining long-duration/real-app/billing acceptance are separate.
 
 ## Handoff
 
-- Last: implemented opt-in packaging with origin authentication, visitor CIDRs, finite hostnames and migration reservation retention.
-- Next: coordinating agent reviews and validates the exact packaged live plan before any IPv4 release.
+- Last: published opt-in packaging and the default-log redaction fix; coordinating agent validated replacement and removed the old IPv4 reservation.
+- Next: review live evidence, confirm temporary diagnostic cleanup, and assess remaining real-app/renewal/billing acceptance.

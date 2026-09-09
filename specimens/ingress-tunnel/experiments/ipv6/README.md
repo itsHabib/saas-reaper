@@ -161,5 +161,6 @@ A recurring add-on above $3.65/month alone erases the entire IPv4 saving. Obtain
 an actual certificate quote; this PR does not assert an unverified add-on price.
 The existing delegated names plus free parent certificate already fail the
 hypothesis. The two-exact-host candidate has passed bounded live transport checks,
-but live validation of the reusable IPv6 pack and migration of the existing pilot
-remain separate acceptance steps.
+and the reusable pack subsequently passed live replacement and IPv4 release.
+See the separate packaged-mode evidence; renewal, long-duration behavior and
+measured billing remain unproven.

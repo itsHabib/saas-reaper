@@ -53,11 +53,10 @@ and retry times. A repeat bootstrap also required downloading binaries to a
 `.next` file and atomically replacing the executable instead of overwriting a
 running binary.
 
-These fixes were made in the isolated experimental runtime, **not added as an
-IPv6 mode to the supported Terraform pack**. A production patch must incorporate
-and test the address-readiness behavior; the existing GCP startup already uses
-`.next` binary replacement. Do not infer reproducible deployment automation from
-this manually coordinated test.
+These initial fixes were made in the isolated experimental runtime. The later
+packaged mode incorporates address readiness and bounded downloads; the existing
+GCP startup already uses `.next` binary replacement. The initial observations
+alone did not establish reproducible deployment automation.
 
 ## Reboot and cleanup
 
@@ -78,7 +77,7 @@ The original pilot returned HTTP 200 from its health endpoint with strict TLS
 after cleanup. Cloudflare Full (strict) was retained as the stronger TLS setting.
 No current pilot IPv4 address has been released; the IPv4 bill has not disappeared.
 
-## What remains unproven
+## Boundary after the initial experiment
 
 - A packaged deployment, arbitrary wildcard claims, automated certificate renewal,
   authenticated origin pulls, and the complete trust behavior of a reusable pack.
@@ -93,3 +92,58 @@ The unchanged deep delegated-domain hypothesis remains false. The narrower
 **two exact first-level hostnames** experiment passed the transport checks above
 without a new domain purchase or a paid IPv4/NAT dependency. Further packaging
 and acceptance work is needed before releasing an existing address.
+
+
+## Packaged mode validation
+
+The coordinating agent subsequently deployed implementation `83fac0e` through the
+opt-in Terraform mode against the retained pilot state disk, keeping the old IPv4
+reservation detached for rollback. This is distinct from the removed initial
+experimental host. Live operations were separately authorized; the implementation
+worker did not read private state or perform cloud/DNS mutations.
+
+| Packaged check | Observed result |
+|---|---|
+| Synthetic signed callback | 200 in 0.274 seconds; 0.414 seconds after reboot |
+| Exact 1 MiB body | Passed in 1.672 seconds; 1.747 seconds after reboot |
+| Streaming | First data 0.229 seconds / completion 1.437 seconds; post-reboot 0.491 / 1.713 seconds |
+| Protocol/security suite | WSS, stale/tampered callback rejection and forwarding checks passed |
+| Origin authentication | Cloudflare origin-header rule disabled: 403; re-enabled: 200 |
+| Cache policy | Dynamic cacheable target response and spoof checks passed with Cloudflare bypass active |
+| Visitor restrictions | IPv6 visitor edge: 200; denied and forged control requests: 403 |
+| DNS authority | Host DNS operation rejected with 403 |
+| Reboot state | Five certificate files, including retained previous certificates and new exact-host certificates, preserved |
+
+Observed agent reconnects coincided with the client machine sleeping. The next
+awake observation lasted more than 213 seconds without a link loss. Read-only
+inspection found no post-handshake HTTP-client deadline; this is a bounded
+observation, not a guarantee against network loss or a long-duration soak.
+
+Live validation found an origin-header redaction gap in Caddy's default access
+logger, despite the named access-log filters. Commit `0c73702` adds a global
+filter and removes the header from the original authenticated request before
+proxying. Its real-Caddy proof covers explicit-port and unmatched hosts, rejected
+requests and backend 502 responses and checks all logs for fixture secrets.
+The fix at `0c73702` was then deployed through an actual VM replacement and
+origin-secret rotation. The same normalized static IPv6 address, five certificate
+file hashes, existing probe claim and its agent credential survived replacement.
+No external IPv4 was attached. The full suite passed again: 1 MiB in 1.884
+seconds, signed callback in 0.207 seconds, streaming first data at 0.205 seconds
+and completion at 1.410 seconds, plus WSS, cache and header checks.
+
+After deliberate offline 502 and unmatched-listener requests, the coordinating
+agent checked all live Caddy journal entries and confirmed the current origin
+secret was absent. The Caddy admin API was disabled. The prior origin-secret
+version was destroyed and its replacement enabled, with the Cloudflare rule
+updated to match. This verifies the fix and rotation without publishing secret
+values or logs. Terraform then returned no drift (exit 0). A separately reviewed
+release plan deleted only the old IPv4 reservation; its apply completed
+successfully. Post-release health returned HTTP 200 and the address inventory
+contained only the static external IPv6 reservation. The old IPv4 hourly charge
+has therefore been removed from this deployment; a measured bill is still pending.
+Temporary diagnostic access/test fixtures and an empty former DNS zone are being
+cleaned up separately; their final cleanup is not claimed here.
+
+Remaining acceptance includes certificate renewal, sustained load, real Slack
+and work-network use, measured billing and cross-zone recovery. Exact-host mode
+does not add arbitrary wildcard claim publication or automatic failover.

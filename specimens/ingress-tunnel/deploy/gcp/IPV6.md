@@ -3,8 +3,9 @@
 `network_mode = "cloudflare_ipv6"` packages the bounded [live experiment](../../experiments/ipv6/LIVE-VALIDATION.md).
 The default remains the existing direct IPv4 deployment. The mode exposes a finite
 list of exact first-level hostnames through Cloudflare; it does not automatically
-publish arbitrary claims. The initial live experiment predates this reusable
-configuration: validate this pack's rendered plan and actual startup separately.
+publish arbitrary claims. The [packaged-mode validation](../../experiments/ipv6/LIVE-VALIDATION.md#packaged-mode-validation)
+subsequently passed reboot, replacement, origin-secret rotation and IPv4 release.
+Each deployment still needs its own reviewed plan and startup verification.
 
 ## Inputs and authority
 
