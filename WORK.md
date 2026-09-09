@@ -3,7 +3,7 @@
 
 Work-ID: ingress-tunnel-observability
 Status: active
-Subject: git:027674a0a022aafc036ee14fc8cd0557ef30892e
+Subject: git:8dc430185cddc3874c1ab1742cb5bd02fd973919
 Stop-at: reviewed-change
 
 ## Outcome
