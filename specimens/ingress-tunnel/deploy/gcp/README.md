@@ -99,6 +99,9 @@ See [the Slack pilot checklist](SLACK-PILOT.md) before switching the real app.
 - The host installs Debian packages at boot. Server, Caddy, xcaddy and the DNS module are
   built locally with explicit pins; OS packages and certificate issuance require network access.
 
+For the bounded investigation into removing the IPv4 charge, see the
+[IPv6 feasibility experiment](../../experiments/ipv6/README.md). It is not a supported deployment mode.
+
 ## Cost target
 
 Estimate checked on 2026-09-07, in USD. If the billing account has the free-tier E2 VM and
