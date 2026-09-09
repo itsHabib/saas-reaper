@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/itsHabib/saas-reaper/specimens/ingress-tunnel/internal/api"
 	"github.com/itsHabib/saas-reaper/specimens/ingress-tunnel/internal/edge"
 	"github.com/itsHabib/saas-reaper/specimens/ingress-tunnel/internal/link"
+	"github.com/itsHabib/saas-reaper/specimens/ingress-tunnel/internal/metrics"
 	"github.com/itsHabib/saas-reaper/specimens/ingress-tunnel/internal/store/sqlite"
 	"github.com/itsHabib/saas-reaper/specimens/ingress-tunnel/internal/tunnel"
 )
@@ -55,24 +57,50 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	public, err := edge.New(configuration.domain, registry, configuration.forwardProto, configuration.headerTimeout, logger)
+	observer, err := metrics.New(func() int { return len(registry.Live()) })
+	if err != nil {
+		return err
+	}
+	public, err := edge.New(configuration.domain, registry, configuration.forwardProto, configuration.headerTimeout, observer, logger)
 	if err != nil {
 		return err
 	}
 	control := http.NewServeMux()
 	management.Register(control)
 	control.Handle("GET /v1/connect", accept)
-	return serve(configuration, control, public, accept, logger)
+	return serve(configuration, control, public, diagnostics(configuration, observer), accept, logger)
+}
+
+// diagnostics is the loopback-only operator surface: metrics always, pprof only when the
+// operator opened the gate. It never leaves the host.
+func diagnostics(configuration config, observer *metrics.Registry) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", observer.Handler())
+	if !configuration.pprof {
+		return mux
+	}
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	return mux
 }
 
 // serve runs the control and edge listeners together and stops both on the first signal or
 // listener failure. Agent links are hijacked from net/http, so they are ended explicitly, and
 // only after they have ended does the store close beneath them. The edge has no write timeout
 // because a tunneled response may stream for as long as the visitor and agent keep it open.
-func serve(configuration config, control, public http.Handler, links *link.Handler, logger *slog.Logger) error {
+func serve(configuration config, control, public, diag http.Handler, links *link.Handler, logger *slog.Logger) error {
 	controlServer := &http.Server{
 		Addr:              configuration.controlAddress,
 		Handler:           control,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	diagServer := &http.Server{
+		Addr:              configuration.diagAddress,
+		Handler:           diag,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -84,10 +112,14 @@ func serve(configuration config, control, public http.Handler, links *link.Handl
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	failures := make(chan error, 2)
+	failures := make(chan error, 3)
 	go func() {
 		logger.Info("reaper tunnel control listening", "address", controlServer.Addr, "database", configuration.databasePath)
 		failures <- controlServer.ListenAndServe()
+	}()
+	go func() {
+		logger.Info("reaper tunnel diagnostics listening", "address", diagServer.Addr, "pprof", configuration.pprof)
+		failures <- diagServer.ListenAndServe()
 	}()
 	go func() {
 		logger.Info("reaper tunnel edge listening", "address", edgeServer.Addr, "domain", configuration.domain)
@@ -104,6 +136,7 @@ func serve(configuration config, control, public http.Handler, links *link.Handl
 	shutdownErr := errors.Join(
 		edgeServer.Shutdown(shutdownContext),
 		controlServer.Shutdown(shutdownContext),
+		diagServer.Shutdown(shutdownContext),
 		links.Shutdown(shutdownContext),
 	)
 	if errors.Is(listenErr, http.ErrServerClosed) {

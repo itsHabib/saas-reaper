@@ -57,3 +57,31 @@ func TestLoadConfigAppliesDefaultsAndOverrides(t *testing.T) {
 		t.Fatal("padded duration accepted")
 	}
 }
+
+func TestDiagnosticsStayOnLoopback(t *testing.T) {
+	setRequired(t)
+	t.Setenv("REAPER_TUNNEL_KEEPALIVE", "")
+	t.Setenv("REAPER_TUNNEL_HEADER_TIMEOUT", "")
+	t.Setenv("REAPER_TUNNEL_DIAG_ADDR", "")
+	t.Setenv("REAPER_TUNNEL_PPROF", "")
+	loaded, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.diagAddress != "127.0.0.1:8082" || loaded.pprof {
+		t.Fatalf("defaults = %+v", loaded)
+	}
+	t.Setenv("REAPER_TUNNEL_DIAG_ADDR", "0.0.0.0:8082")
+	if _, err := loadConfig(); err == nil {
+		t.Fatal("a routable diagnostics address was accepted")
+	}
+	t.Setenv("REAPER_TUNNEL_DIAG_ADDR", "[::1]:8082")
+	t.Setenv("REAPER_TUNNEL_PPROF", "1")
+	loaded, err = loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.pprof {
+		t.Fatal("the pprof gate did not open")
+	}
+}

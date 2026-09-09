@@ -12,12 +12,18 @@ if rg -n -g '!**/*_test.go' "$module/(api|edge|link|agent|store)" internal/tunne
   exit 1
 fi
 
-if rg -n -g '!**/*_test.go' "$module/(api|edge|link|agent|store)" internal/api internal/edge internal/link internal/agent internal/store; then
+if rg -n -g '!**/*_test.go' "$module/(api|edge|link|agent|store|metrics)" internal/api internal/edge internal/link internal/agent internal/store; then
   echo "boundary violation: transports and mechanisms may depend only on tunnel policy" >&2
   exit 1
 fi
 
-if rg -n -g '!**/*_test.go' 'coder/websocket|hashicorp/yamux' internal/tunnel internal/edge internal/agent internal/api internal/store; then
+# metrics implements the observer the edge defines, so it may import edge and nothing else.
+if rg -n -g '!**/*_test.go' "$module/(api|link|agent|store|tunnel)" internal/metrics; then
+  echo "boundary violation: metrics may depend only on the edge's observer contract" >&2
+  exit 1
+fi
+
+if rg -n -g '!**/*_test.go' 'coder/websocket|hashicorp/yamux' internal/tunnel internal/edge internal/agent internal/api internal/store internal/metrics; then
   echo "mechanism leak: only internal/link may speak WebSocket or yamux" >&2
   exit 1
 fi
