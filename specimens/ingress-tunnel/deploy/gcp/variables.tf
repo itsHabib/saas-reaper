@@ -16,6 +16,7 @@ variable "domain" {
 }
 variable "dns_zone" {
   type        = string
+  default     = null
   description = "Existing publicly delegated parent Cloud DNS zone in project_id. Terraform writes a child NS delegation; the host gets no authority over this parent."
 }
 variable "acme_email" {
@@ -28,19 +29,19 @@ variable "acme_email" {
 }
 variable "control_cidrs" {
   type        = list(string)
-  description = "Required IPv4 sources permitted to attach agents and call management on 8443."
+  description = "Required visitor CIDRs for control. Direct mode accepts IPv4; Cloudflare mode accepts IPv4 and IPv6."
   validation {
-    condition     = length(var.control_cidrs) > 0 && alltrue([for cidr in var.control_cidrs : can(cidrnetmask(cidr))])
-    error_message = "Supply at least one IPv4 CIDR; use your public IP with /32."
+    condition     = length(var.control_cidrs) > 0 && alltrue([for cidr in var.control_cidrs : (var.network_mode == "cloudflare_ipv6" ? can(cidrhost(cidr, 0)) : can(cidrnetmask(cidr)))])
+    error_message = "Supply valid visitor CIDRs; direct mode requires IPv4."
   }
 }
 variable "edge_cidrs" {
   type        = list(string)
-  default     = ["0.0.0.0/0"]
+  default     = null
   description = "Visitor sources on 443; public by default so Slack can reach callbacks."
   validation {
-    condition     = length(var.edge_cidrs) > 0 && alltrue([for cidr in var.edge_cidrs : can(cidrnetmask(cidr))])
-    error_message = "Supply at least one IPv4 CIDR."
+    condition     = var.edge_cidrs == null ? true : length(var.edge_cidrs) > 0 && alltrue([for cidr in var.edge_cidrs : (var.network_mode == "cloudflare_ipv6" ? can(cidrhost(cidr, 0)) : can(cidrnetmask(cidr)))])
+    error_message = "Supply valid visitor CIDRs; direct mode requires IPv4."
   }
 }
 variable "region" {
@@ -79,4 +80,35 @@ variable "admin_actor" {
 variable "state_disk_gib" {
   type    = number
   default = 10
+}
+
+variable "network_mode" {
+  type    = string
+  default = "ipv4"
+  validation {
+    condition     = contains(["ipv4", "cloudflare_ipv6"], var.network_mode)
+    error_message = "Use ipv4 or cloudflare_ipv6."
+  }
+}
+variable "retain_ipv4_reservation" {
+  type        = bool
+  default     = false
+  description = "Retain the detached IPv4 reservation during IPv6 migration validation; it remains billable."
+}
+variable "control_name" {
+  type    = string
+  default = "control"
+  validation {
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", var.control_name))
+    error_message = "Use a single lowercase control DNS label of 1-63 characters."
+  }
+}
+variable "claim_names" {
+  type        = set(string)
+  default     = []
+  description = "Finite exact first-level claim hostnames to expose in IPv6 mode. Creating a claim does not add DNS or certificates."
+  validation {
+    condition     = alltrue([for name in var.claim_names : can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", name)) && !contains(["www", "control", "admin", "api"], name)])
+    error_message = "Use single lowercase claim DNS labels of 1-63 characters."
+  }
 }

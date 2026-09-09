@@ -1,65 +1,59 @@
 <!-- reaper-work:v1 -->
-# Work: Non-tunnel review fixes
+# Work: IPv6 ingress feasibility experiment
 
-Work-ID: non-tunnel-review-fixes
+Work-ID: ingress-tunnel-ipv6-experiment
 Status: active
-Subject: git:6517797efde09c323f53c165899caf3bd15c5fbc
-Stop-at: reviewed-change
+Subject: git:2371c58101c524f02d5f67e504a8438606a50988
+Stop-at: operator-decision
 
 ## Outcome
 
-Review the factory, flag service, and the four non-tunnel specimen heads;
-fix reproduced defects with regression coverage and open a reviewable PR.
-Record executable evidence separately from untested cloud deployment claims.
+Determine whether the GCP tunnel can omit public IPv4 without paid NAT while
+preserving IPv4-client access, transport behavior, and authority boundaries.
+Land the validated opt-in exact-host IPv6 deployment through Gate after
+reconciling main, rerunning checks, and judging the exact head.
 
 ## Preserve
 
-- Evaluation ordering, rollout hashing, targeting policy, and token separation.
-- Independent specimen modules and their existing PR bases.
-- Customer-selected deployment and language combinations.
-- Preserve the merged tunnel work; do not provision cloud infrastructure.
+- Existing direct IPv4 defaults and private Terraform state; live migration and address release belong to the coordinating agent after validation.
+- Independent tunnel module, loopback-only proofs, separate credentials and scoped DNS authority.
+- Public artifacts use generic examples and contain no operator identifiers or secrets.
 
 ## Change
 
-- `internal/snapshot/memory.go`: preserve the newest committed revision.
-- `internal/flags/`: expose captured-definition evaluation and regressions.
-- `internal/api/`: evaluate one bulk snapshot and reject empty targeting keys.
-- `internal/factory/`: quote attributes, reject unusable names, repair templates,
-  bump receipts, and cover regressions.
-- `README.md`: document deployment naming limits.
-- `docs/non-tunnel-review.md`: record reviewed heads and proof boundaries.
-- `WORK.md`: maintain this work record.
+- `specimens/ingress-tunnel/experiments/ipv6/`: sourced feasibility result and opt-in public egress probe.
+- `specimens/ingress-tunnel/deploy/gcp/`: opt-in IPv6 mode, static address, retained migration reservation, origin secret, Caddy policy, mock tests and setup guide.
+- `specimens/ingress-tunnel/scripts/`: render and exercise both deployment modes on loopback.
+- `WORK.md`: current bounded outcome and evidence.
 
 ## Prove
 
-- Green: make check, make demo, and make product-demo.
-- Green: targeted regression tests pass under the race detector.
-- Red: delayed revision 2 cannot overwrite projected revision 3.
-- Red: bulk responses cannot reread a newer definition after listing.
-- Red: inherited variant names, empty targeting keys, and invalid deployment
-  names are rejected; quotes in recipe attributes cannot break Python imports.
-- Red: generated Cloud Run configuration never declares a PORT environment
-  variable; the container port remains configured.
+- Green: shell syntax/lint and controlled transport-response probe checks.
+- Red: missing explicit probe flag and failed transport return nonzero.
+- Green: make check and all three tunnel proofs preserve current behavior.
 
 ## Stop
 
-- The operator authorized merging PRs #12 and #13 on 2026-09-08.
-- Merge only through the operator-issued grant and Gate-pinned command.
-- Do not apply infrastructure or edit another session's checkout.
+- Implementation worker: no infrastructure apply, DNS/firewall changes, IPv4 release, Slack cutover, or merge.
+- The operator separately authorized the coordinating agent to validate and migrate the live deployment after checks; this document does not transfer that authority to the worker.
+- No paid NAT or expanded host DNS authority to force feasibility.
+- The delegated deep-hostname configuration fails free Universal SSL coverage; do not claim it works.
 
 ## Evidence
 
-- Baseline make check and make product-demo passed.
-- New regression tests reproduced publication ordering, bulk snapshot,
-  empty targeting key, deployment-name, PORT, and attribute-encoding defects.
-- Fixed targeted Go race tests and generated TypeScript tests pass.
-- Final make check, make demo, and make product-demo pass.
-- Detailed specimen heads, proof results, and limitations are recorded in
-  docs/non-tunnel-review.md.
+- Verified: official DNS delegation and Universal SSL documentation falsify the unchanged-domain candidate.
+- Verified: make check and all three tunnel proofs pass after packaging; 16 GCP mocks and actual Caddy origin-auth/visitor/forwarding/log/no-store tests pass.
+- Verified: Bash syntax, ShellCheck, and controlled curl responses cover reachable HTTP rejection, network failure, empty HTTP response, and missing opt-in.
+- Verified: coordinating agent reports isolated no-public-IPv4 E2 boot, first-level TLS, IPv4-forced agent/WSS, exact body, signed fixture callbacks, streaming, access rejection and telemetry. See sanitized LIVE-VALIDATION.md.
+- Verified: post-reboot transport/security suite passed; certificates retained, services active, claim revoked and local fixtures stopped.
+- Verified: coordinating agent removed experimental cloud/DNS resources and OS Login key; original delegation remained and original pilot strict-TLS health returned 200.
+- Verified: packaged mode 0c73702 passed live reboot, VM replacement, secret rotation, origin/cache/forwarding rejection, static IPv6 and certificate/claim retention; no-drift exit 0.
+- Verified: separate plan removed only the old IPv4 reservation; apply passed, health returned 200, and only static external IPv6 remained.
+- Verified: post-release suite passed; probe revoked, agent/fixtures stopped, temporary IAP/OS Login access and empty former DNS zone/delegation removed. Pre-migration snapshot intentionally retained.
+- Long-duration, real-app, renewal and measured-billing acceptance remain separate.
 
 ## Handoff
 
-- Last: confirmed defects repaired and local proofs green; incident proof fix
-  is PR #12, based on the existing incident branch.
-- Next: revalidate the reconciliation with merged tunnel PRs #9–#11,
-  refresh exact-head review, and merge through Gate.
+- Last: published opt-in packaging and the default-log redaction fix; coordinating agent validated replacement and removed the old IPv4 reservation.
+- Next: finish exact-head checks and review, then merge using the operator grant and Gate-pinned command.
+- Reconciled merged non-tunnel fixes from PR #13; its detailed evidence remains in docs/non-tunnel-review.md.

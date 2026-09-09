@@ -1,10 +1,24 @@
 #!/usr/bin/env bash
 # Terraform renders the placeholders. No credentials are embedded in instance metadata.
-# shellcheck disable=SC2016,SC2154
+# shellcheck disable=SC2016,SC2154,SC2050
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y ca-certificates curl jq passwd
+if [[ '${ipv6}' == true ]]; then
+  # network-online can precede global IPv6 assignment. Never start downloads on link-local only.
+  for _ in $(seq 1 120); do
+    if ip -6 address show scope global | grep -q 'inet6'; then
+      break
+    fi
+    sleep 1
+  done
+  ip -6 address show scope global | grep -q 'inet6'
+  apt-get -o Acquire::ForceIPv6=true -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+  apt-get -o Acquire::ForceIPv6=true -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y ca-certificates curl jq passwd
+fi
+if [[ '${ipv6}' != true ]]; then
+  apt-get update
+  apt-get install -y ca-certificates curl jq passwd
+fi
 
 # systemd resolves service credentials through NSS even when User= is numeric.
 # Reserve both identities explicitly and refuse collisions on repeat boots.
@@ -64,6 +78,7 @@ server_key='${server_key}'
 caddy_key='${caddy_key}'
 admin_secret='${admin_secret}'
 read_secret='${read_secret}'
+origin_secret='${origin_secret}'
 domain='${domain}'
 admin_actor='${admin_actor}'
 CONFIG
@@ -75,14 +90,14 @@ set -euo pipefail
 # shellcheck source=/dev/null
 source /etc/reaper-tunnel-host.conf
 access_token() {
-  curl --fail --silent --show-error --retry 10 --retry-all-errors \
+  curl --fail --silent --show-error --connect-timeout 10 --max-time 120 --retry 5 --retry-max-time 180 --retry-all-errors \
     -H 'Metadata-Flavor: Google' \
     http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | jq -er .access_token
 }
 cloud_get() {
   # Header supplied on stdin keeps the short-lived token out of process arguments.
   printf 'Authorization: Bearer %s\n' "$(access_token)" | \
-    curl --fail --silent --show-error --retry 10 --retry-all-errors -H @- "$1"
+    curl --fail --silent --show-error --connect-timeout 10 --max-time 120 --retry 5 --retry-max-time 180 --retry-all-errors -H @- "$1"
 }
 CLOUD
 chmod 0755 /usr/local/lib/reaper-tunnel/cloud.sh
@@ -111,8 +126,24 @@ umask 077
   printf 'REAPER_TUNNEL_READ_TOKEN=%s\n' "$read_token"
 } > /etc/reaper-tunnel.env.next
 mv /etc/reaper-tunnel.env.next /etc/reaper-tunnel.env
+
 ENV
 chmod 0755 /usr/local/lib/reaper-tunnel/render-env.sh
+if [[ '${ipv6}' == true ]]; then
+  cat > /usr/local/lib/reaper-tunnel/render-origin.sh << 'ORIGIN'
+#!/usr/bin/env bash
+set -euo pipefail
+# shellcheck source=/dev/null
+source /usr/local/lib/reaper-tunnel/cloud.sh
+origin_token=$(cloud_get "https://secretmanager.googleapis.com/v1/projects/$project/secrets/$origin_secret/versions/latest:access" | jq -er .payload.data | base64 -d)
+[[ "$origin_token" =~ ^[a-zA-Z0-9]{48}$ ]]
+umask 077
+printf 'REAPER_ORIGIN_TOKEN=%s\n' "$origin_token" > /etc/reaper-origin.env.next
+mv /etc/reaper-origin.env.next /etc/reaper-origin.env
+ORIGIN
+  chmod 0755 /usr/local/lib/reaper-tunnel/render-origin.sh
+  /usr/local/lib/reaper-tunnel/render-origin.sh
+fi
 # shellcheck source=/dev/null
 source /usr/local/lib/reaper-tunnel/cloud.sh
 cloud_get "https://storage.googleapis.com/$bucket/$server_key" > /usr/local/bin/reaper-tunnel.next
@@ -122,7 +153,13 @@ mv /usr/local/bin/reaper-tunnel.next /usr/local/bin/reaper-tunnel
 mv /usr/local/bin/caddy.next /usr/local/bin/caddy
 /usr/local/lib/reaper-tunnel/render-env.sh
 
-cat > /etc/caddy/Caddyfile << 'CADDY'
+if [[ '${ipv6}' == true ]]; then
+  cat > /etc/caddy/Caddyfile << 'IPV6CADDY'
+${caddy_config}
+IPV6CADDY
+fi
+if [[ '${ipv6}' != true ]]; then
+  cat > /etc/caddy/Caddyfile << 'CADDY'
 {
   email ${acme_email}
   auto_https disable_redirects
@@ -152,8 +189,18 @@ ${domain}:8443 {
   reverse_proxy 127.0.0.1:8080
 }
 CADDY
+fi
 # Check the actual Caddy build and rendered syntax before starting either service.
+if [[ '${ipv6}' == true ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source /etc/reaper-origin.env
+  set +a
+fi
 /usr/local/bin/caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile > /dev/null
+if [[ '${ipv6}' == true ]]; then
+  unset REAPER_ORIGIN_TOKEN
+fi
 
 cat > /etc/systemd/system/reaper-tunnel.service << 'UNIT'
 [Unit]
@@ -198,6 +245,14 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 UNIT
+if [[ '${ipv6}' == true ]]; then
+  install -d /etc/systemd/system/caddy.service.d
+  cat > /etc/systemd/system/caddy.service.d/origin.conf << 'ORIGINUNIT'
+[Service]
+ExecStartPre=+/usr/local/lib/reaper-tunnel/render-origin.sh
+EnvironmentFile=/etc/reaper-origin.env
+ORIGINUNIT
+fi
 install -d /etc/systemd/journald.conf.d
 cat > /etc/systemd/journald.conf.d/reaper.conf << 'JOURNAL'
 [Journal]
