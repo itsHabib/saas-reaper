@@ -89,8 +89,8 @@ Run from a proposed host/network with IPv6 internet access:
 bash specimens/ingress-tunnel/experiments/ipv6/egress.sh --probe-public-endpoints
 ```
 
-The explicit flag permits up to eight public HTTPS requests (redirects allowed,
-15 seconds each). The script forces IPv6, disables curl configuration and proxies,
+The explicit flag permits eight public HTTPS probes (up to three redirects and
+15 seconds per probe). The script forces IPv6, disables curl configuration and proxies,
 verifies TLS, discards bodies and prints only fixed endpoint labels/statuses.
 Exit 0 means HTTP transport worked for the sampled endpoints; exit 1 means at
 least one transport failed; exit 2 means invalid invocation. HTTP 401/403/404 is
