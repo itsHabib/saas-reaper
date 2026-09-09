@@ -54,7 +54,7 @@ Run the factory proof:
 make product-demo
 ```
 
-## Golden specimen
+## Golden specimens
 
 The root Go service remains the first customer-owned specimen. It asks whether
 a small SaaS capability can arrive runnable, understandable, and safe for an
@@ -78,6 +78,38 @@ Run the validation floor:
 
 ```sh
 make check
+```
+
+The ingress-tunnel specimen lives in
+[`specimens/ingress-tunnel`](specimens/ingress-tunnel). Hosted tunnels are the
+purest case of the selection rule: the product is a persistent connection, a
+multiplexer, and a host-based router, priced per seat, while the thing actually
+being sold is the prerequisite of a public address, wildcard DNS, and a
+certificate. The specimen ships that prerequisite as an AWS Terraform pack that
+builds the server and a pinned Caddy on your machine, stands up one small host
+behind an Elastic IP with the claims database on its own volume, writes the apex
+and wildcard records, mints both API tokens, lets Caddy obtain and renew a
+wildcard certificate through Route 53, and gates the control port and the edge
+port with separate allowlists. One apply, one claim per developer, one static
+agent binary. The independent nested Go module keeps the capability adjacent to
+the future factory source without pretending the factory supports it
+today—`validate.go` still rejects every capability except `feature-flags`.
+
+Its local proof runs entirely on loopback: two subdomains, two agents, one
+server; bodies, streamed chunks, and WebSocket upgrades pass end to end, and the
+invariant harness holds isolation, credential gating, authority separation,
+supersession, restart durability, revocation, and audit integrity. The AWS pack
+is validated with Terraform's own formatter and validator plus the cross-compile
+it performs on apply; it is never applied by the proof.
+
+Run the tunnel proofs without external runtime traffic:
+
+```sh
+make tunnel-demo
+make tunnel-invariants
+make tunnel-deploy-check
+# static checks plus all three
+make tunnel-proof
 ```
 
 ## Frontier work contract
