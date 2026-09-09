@@ -18,8 +18,9 @@ done < <(rg --files \
   -g '*.ts.tmpl' \
   -g '*.py' \
   -g '*.py.tmpl' \
-  -g '!examples/typescript/node_modules/**' \
-  -g '!examples/python/.venv/**')
+  -g '!**/node_modules/**' \
+  -g '!**/.venv/**' \
+  -g '!**/__pycache__/**')
 
 if rg -n '\belse\b' \
   -g '*.go' \
@@ -28,8 +29,9 @@ if rg -n '\belse\b' \
   -g '*.ts.tmpl' \
   -g '*.py' \
   -g '*.py.tmpl' \
-  -g '!examples/typescript/node_modules/**' \
-  -g '!examples/python/.venv/**' \
+  -g '!**/node_modules/**' \
+  -g '!**/.venv/**' \
+  -g '!**/__pycache__/**' \
   .; then
   echo "line-of-sight violation: use a guard clause instead of else" >&2
   exit 1

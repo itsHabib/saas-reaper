@@ -17,7 +17,7 @@ Record executable evidence separately from untested cloud deployment claims.
 - Evaluation ordering, rollout hashing, targeting policy, and token separation.
 - Independent specimen modules and their existing PR bases.
 - Customer-selected deployment and language combinations.
-- No cloud provisioning and no merges.
+- Preserve the merged tunnel work; do not provision cloud infrastructure.
 
 ## Change
 
@@ -43,7 +43,8 @@ Record executable evidence separately from untested cloud deployment claims.
 
 ## Stop
 
-- Stop at fixes PRs with validation evidence; do not merge or run Gate.
+- The operator authorized merging PRs #12 and #13 on 2026-09-08.
+- Merge only through the operator-issued grant and Gate-pinned command.
 - Do not apply infrastructure or edit another session's checkout.
 
 ## Evidence
@@ -60,4 +61,5 @@ Record executable evidence separately from untested cloud deployment claims.
 
 - Last: confirmed defects repaired and local proofs green; incident proof fix
   is PR #12, based on the existing incident branch.
-- Next: publish the main fixes and inspect CI and automated review results.
+- Next: revalidate the reconciliation with merged tunnel PRs #9–#11,
+  refresh exact-head review, and merge through Gate.
