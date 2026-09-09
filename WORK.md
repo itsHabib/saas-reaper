@@ -1,76 +1,54 @@
 <!-- reaper-work:v1 -->
-# Work: Ingress tunnel observability
+# Work: GCP ingress tunnel and Slack pilot proof
 
-Work-ID: ingress-tunnel-observability
+Work-ID: ingress-tunnel-gcp
 Status: active
-Subject: git:8dc430185cddc3874c1ab1742cb5bd02fd973919
+Subject: git:1a52161a40c1f143fc5bdaa660d0c63e0b3bef66
 Stop-at: reviewed-change
 
 ## Outcome
 
-The ingress-tunnel specimen reports what it does: one structured access line
-per edge request including refusals and upgrades, a Prometheus endpoint on a
-loopback-only diagnostics listener with live links, per-subdomain requests,
-bytes, durations, upgrades, and stream-open latency and failures, a pprof
-surface on the same listener that exists only behind an explicit gate, and an
-AWS pack that writes both services' logs and Caddy's JSON access logs to files,
-ships them to CloudWatch, and scrapes the metrics into a CloudWatch namespace.
+Provide a minimal GCP deployment pack for the existing tunnel and a local Slack-signature
+transport proof, preparing a concrete live pilot to replace the operator's hosted tunnel.
 
 ## Preserve
 
-- Every behavior the tunnel specimen already proves stays unchanged; the observer is a
-  side channel and never decides a request's outcome.
-- The diagnostics listener binds loopback only; a routable address is refused at startup.
-- Only `internal/link` speaks WebSocket or yamux; `internal/metrics` may import only the
-  edge's observer contract.
-- Demo and CI traffic stays on loopback ports `1950x`; the AWS pack is validated, never applied.
+- Keep the module independent and preserve the tunnel lifecycle, separate credentials, and loopback diagnostics.
+- Keep PR #9 and #10 review fixes separate from this follow-on package.
+- Keep automated proofs on loopback 1950x. Operator authorized a separate live GCP validation in the operator-selected project on 2026-09-08; no real Slack changes yet.
+- Keep claims and certificate state across VM replacement; never silently delete the state disk.
 
 ## Change
 
-- `specimens/ingress-tunnel/internal/edge/observe.go`: the consumer-owned `Observer` and the
-  response recorder that captures status, bytes, and upgrades without altering the response.
-- `specimens/ingress-tunnel/internal/edge/proxy.go`: observe and log every outcome once;
-  time every stream open.
-- `specimens/ingress-tunnel/internal/metrics/`: the Prometheus registry behind the observer.
-- `specimens/ingress-tunnel/cmd/reaper-tunnel/`: `REAPER_TUNNEL_DIAG_ADDR` (loopback only)
-  and `REAPER_TUNNEL_PPROF`; a third listener serving metrics and gated pprof.
-- `specimens/ingress-tunnel/scripts/`: the demo asserts the access lines, the series, and the
-  closed pprof gate; the invariants open the gate for the post-restart boot and check it.
-- `specimens/ingress-tunnel/scripts/check-boundaries.sh`: the metrics rule.
-- `specimens/ingress-tunnel/deploy/aws/`: Caddy access logs, service logs to files, the
-  CloudWatch agent with log shipping and a Prometheus scrape, log groups with retention, the
-  managed agent policy, and a `pprof` variable that replaces the host deliberately.
-- `specimens/ingress-tunnel/README.md`: the three observability surfaces.
-- `specimens/ingress-tunnel/deploy/aws/README.md`: what the log groups and namespace carry.
-- `AGENTS.md`: the metrics layering rule and the loopback-only diagnostics listener.
-- `CLAUDE.md`: keep the paired agent guide byte-identical.
-- `README.md`: one paragraph on the observability surfaces.
-- `WORK.md`: this contract.
+- `specimens/ingress-tunnel/deploy/gcp/`: single VM, private artifacts, managed secrets, wildcard TLS/DNS, retained disk, plan tests, cost estimate, live pilot checklist and LIVE-VALIDATION.md evidence.
+- `specimens/ingress-tunnel/scripts/`: include GCP validation and a synthetic Slack callback in the demo.
+- `specimens/ingress-tunnel/cmd/proof-target/`: fixture-only Slack signature verification.
+- `specimens/ingress-tunnel/README.md`: document GCP and the honest local versus live proof boundary.
+- `.github/workflows/ci.yml`: name both deployment packs in the existing proof job.
+- `AGENTS.md`: include the GCP deployment guide and proof obligations.
+- `CLAUDE.md`: preserve byte-identical agent entrypoints.
+- `WORK.md`: record this follow-on scope and evidence.
 
 ## Prove
 
-- Green: `make check` passes with the new packages under race, strict lint, shfmt, shellcheck,
-  and the extended boundary script.
-- Green: `make tunnel-demo` finds the access lines for a proxied request and an upgrade, the
-  request and upgrade counters, the live-link gauge at two, and no pprof.
-- Green: `make tunnel-invariants` finds pprof absent before the restart and present behind the
-  gate after it, and metrics served on the diagnostics port.
-- Green: `make tunnel-deploy-check` validates the pack with the agent, log groups, and policy.
-- Red: a routable diagnostics address is refused at startup; pprof without the gate is 404.
+- Green: make check and make -C specimens/ingress-tunnel demo invariants deploy-check.
+- Green: mocked GCP defaults and retained disk state plan; actual pinned Caddy adapter accepts rendered config.
+- Green: valid signed Slack form body reaches the origin and is acknowledged within three seconds.
+- Red: tampered/stale signed payloads fail, unrelated domain and cross-zone state move fail, empty control allowlist fails.
 
 ## Stop
 
-- Stop before any non-loopback proof dependency, cloud account, applied infrastructure, Gate
-  invocation, or merge.
-- Stop after two review-fix rounds even if a broader finding remains.
+- Operator now requests landing #9 then #10 then #11 through Gate. Grant minting, judge and resolve remain operator-only; no merge without the granted, pinned Gate command.
+- Live GCP deployment is authorized for the project/domain recorded in ignored local deployment variables. Real Slack cutover still needs receiver/test-app inputs; AWS validation still needs account access.
+- No further fix rounds on #9 or #10 unless genuinely new reviewer findings warrant them.
 
 ## Evidence
 
-- Verified: nested `make check`, `make demo`, `make invariants`, and `make deploy-check` pass
-  locally on this branch.
+- Verified: make check and all three tunnel proofs pass. Eight mocked GCP tests, Terraform-rendered startup scripts, the actual pinned Caddy adapter, and amd64 server build pass.
+- Verified: #9 pushed at 17b0cc1 and #10 at 84eb1cd; all seven Codex findings verified and folded, local validation passed on each.
+- Verified: GCP Terraform 1.15.8 validates and eight mocked tests pass. CI 1.8.5 failed mocked teardown on prevent_destroy; the tunnel job now pins Terraform 1.15.8 and Go 1.26.5, matching the tested builder. No real infrastructure was applied.
 
 ## Handoff
 
-- Last: inherited all seven verified Codex fixes from #9, preserving pprof and assigning Caddy log directories to its new UID. make check and all three tunnel proofs pass on the combined stack.
-- Next: open the pull request against `ingress-tunnel-specimen`, gather review, fold verified
-  findings within two rounds, and stop at a reviewed green head.
+- Last: GCP live deployment passed TLS, signed fixture callbacks, 1 MiB body, WSS, streaming, telemetry, and VM replacement with retained claims and identical certificates. Fixed missing Linux service accounts found by live boot and excluded operator Terraform files from local proof copies. make check and all three proofs pass.
+- Next: review the live-bootstrap fixes on #11. Reboot and no-drift plan passed; temporary claim revoked and fixtures stopped. Cloud host remains running. Actual Slack app, AWS deployment, measured bill and full teardown remain unverified. Preserve ignored Terraform state in this worktree; it owns live resources.

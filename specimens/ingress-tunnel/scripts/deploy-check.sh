@@ -35,3 +35,5 @@ GOTOOLCHAIN=local GOPROXY=off CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
   go build -trimpath -o "$work_dir/reaper-tunnel-linux-arm64" ./cmd/reaper-tunnel
 
 echo "deploy check: the AWS pack is formatted, valid, and its server binary cross-compiles"
+
+./scripts/deploy-gcp-check.sh

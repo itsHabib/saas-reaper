@@ -12,6 +12,9 @@ trap 'exit 130' INT TERM
 require_free_ports "$control_port" "$edge_port" "$acme_target_port" "$umbrella_target_port" "$diag_port"
 build_binaries
 
+export TARGET_SLACK_SECRET
+TARGET_SLACK_SECRET=$(openssl rand -hex 32)
+
 boot_server
 start_target acme "$acme_target_port"
 start_target umbrella "$umbrella_target_port"
@@ -42,6 +45,25 @@ echo_status=$(curl --silent --header "Host: acme.$domain" --data-binary @"$work_
   --output "$work_dir/blob.echoed" --write-out '%{http_code}' "$edge_url/echo")
 [[ "$echo_status" == 200 ]] || fail "echo returned $echo_status"
 cmp --silent "$work_dir/blob" "$work_dir/blob.echoed" || fail "echoed body differs from the sent bytes"
+
+echo "slack: a signed raw callback survives the tunnel; tampering and stale timestamps fail"
+slack_body='payload=%7B%22type%22%3A%22block_actions%22%2C%22text%22%3A%22a+b%2520c%22%7D'
+slack_timestamp=$(date +%s)
+slack_signature() {
+  printf 'v0:%s:%s' "$1" "$2" | openssl dgst -sha256 -hmac "$TARGET_SLACK_SECRET" | awk '{print "v0=" $NF}'
+}
+slack_post() {
+  curl --silent --show-error --max-time 3 --output /dev/null --write-out '%{http_code}' \
+    --header "Host: acme.$domain" --header 'Content-Type: application/x-www-form-urlencoded' \
+    --header "X-Slack-Request-Timestamp: $1" --header "X-Slack-Signature: $2" \
+    --data-binary "$3" "$edge_url/slack/actions"
+}
+slack_sig=$(slack_signature "$slack_timestamp" "$slack_body")
+[[ "$(slack_post "$slack_timestamp" "$slack_sig" "$slack_body")" == 200 ]] || fail "signed Slack callback was not acknowledged within 3 seconds"
+[[ "$(slack_post "$slack_timestamp" "$slack_sig" "$slack_body ")" == 401 ]] || fail "tampered Slack callback accepted"
+slack_stale=$((slack_timestamp - 600))
+[[ "$(slack_post "$slack_stale" "$(slack_signature "$slack_stale" "$slack_body")" "$slack_body")" == 401 ]] || fail "stale Slack callback accepted"
+unset TARGET_SLACK_SECRET
 
 echo "streaming: the first chunk arrives long before the last one is written"
 timing=$(curl --silent --no-buffer --header "Host: acme.$domain" --output "$work_dir/stream.txt" \
