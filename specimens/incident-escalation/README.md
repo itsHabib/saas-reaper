@@ -27,7 +27,11 @@ make incident-invariants  # bounded lifecycle probes, no container runtime
 
 Or from this directory: `make verify` (checks, then both proofs).
 
-The demo needs a working Docker daemon; the invariant probes do not.
+The demo needs a working Docker daemon; the invariant probes do not. Its
+rotation starts when the proof runs, so Ada is always the first responder and
+her webhook sink is exercised on every calendar week. The invariant probes use
+a separate run-relative schedule for paging while retaining the fixed historical
+schedule for rotation and override assertions.
 
 ### What the demo actually proves
 

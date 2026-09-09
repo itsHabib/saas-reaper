@@ -205,7 +205,14 @@ post_json "$base_url/v1/responders" '{"id":"linus","email":"linus@example.test"}
 
 jq -n --arg secret "$(jq -er '.webhookSecret' "$work_dir/ada.json")" '{ada: $secret}' > "$work_dir/secrets.json"
 
-post_json "$base_url/v1/schedules" "$(cat fixtures/schedule.json)" > /dev/null
+# Anchor the first slot to this run: the checked-in weekly rotation alternates
+# between Ada and Grace, but this proof registers a webhook sink only for Ada.
+# Historical rotations and overrides are exercised separately by invariants.sh.
+schedule=$(jq --arg start "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  '.layers[0].start = $start | .overrides = []' fixtures/schedule.json)
+post_json "$base_url/v1/schedules" "$schedule" > /dev/null
+get_json "$base_url/v1/schedules/payments-primary/on-call" |
+  jq -e '.responder == "ada"' > /dev/null || fail "the demo schedule did not select Ada"
 post_json "$base_url/v1/escalation-policies" "$(cat fixtures/escalation-policy.json)" > /dev/null
 post_json "$base_url/v1/services" \
   '{"id":"payments","name":"Payments API","escalationPolicy":"payments-ladder"}' \
