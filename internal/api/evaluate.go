@@ -70,7 +70,7 @@ func (s *Server) evaluateAll(w http.ResponseWriter, r *http.Request) {
 	}
 	evaluated := make([]any, 0, len(listed))
 	for _, flag := range listed {
-		result, err := s.flags.Evaluate(r.PathValue("environment"), flag.Key, request.Context)
+		result, err := flags.EvaluateDefinition(flag, request.Context)
 		if err != nil {
 			evaluated = append(evaluated, ofrepFailure(flag.Key, "GENERAL", err.Error()))
 			continue
@@ -96,8 +96,8 @@ func readEvaluationRequest(w http.ResponseWriter, r *http.Request, key string) (
 		writeJSON(w, http.StatusBadRequest, ofrepFailure(key, "TARGETING_KEY_MISSING", "targetingKey is required"))
 		return evaluationRequest{}, false
 	}
-	if _, ok := targetingKey.(string); !ok {
-		writeJSON(w, http.StatusBadRequest, ofrepFailure(key, "INVALID_CONTEXT", "targetingKey must be a string"))
+	if value, ok := targetingKey.(string); !ok || value == "" {
+		writeJSON(w, http.StatusBadRequest, ofrepFailure(key, "INVALID_CONTEXT", "targetingKey must be a non-empty string"))
 		return evaluationRequest{}, false
 	}
 	return request, true

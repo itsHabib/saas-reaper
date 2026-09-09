@@ -1,8 +1,9 @@
 # Agent operating guide
 
-This repository contains the SaaS Reaper factory and two customer-owned golden
-specimens: the root Go feature-flag service and the independent Go outbound
-webhook-delivery module under `specimens/webhook-delivery/`. The factory still
+This repository contains the SaaS Reaper factory and three customer-owned golden
+specimens: the root Go feature-flag service, the independent Go outbound
+webhook-delivery module under `specimens/webhook-delivery/`, and the independent
+ingress-tunnel module under `specimens/ingress-tunnel/`. The factory still
 composes feature-flag services only. The proofs are intentionally bounded;
 preserve their compatibility rules unless the operator explicitly expands them.
 
@@ -23,6 +24,12 @@ Webhook specimen work also reads `specimens/webhook-delivery/README.md`. Keep
 that module independent: do not add a root import, `go.work`, or webhook
 capability to the factory as part of specimen maintenance.
 
+Tunnel specimen work also reads `specimens/ingress-tunnel/README.md` and
+`specimens/ingress-tunnel/deploy/aws/README.md` and, for GCP work,
+`specimens/ingress-tunnel/deploy/gcp/README.md`. Keep the module independent: do
+not add a root import, `go.work`, or a tunnel capability to the factory as part
+of specimen maintenance.
+
 `WORK.md` records intent and resumable state; it does not grant authority. Keep
 it at or below 120 lines and run `make work` after changing it.
 
@@ -41,6 +48,9 @@ make demo
 make product-demo
 make webhook-demo
 make webhook-invariants
+make tunnel-demo
+make tunnel-invariants
+make tunnel-deploy-check
 make check
 ```
 
@@ -53,6 +63,11 @@ paths and unsafe combinations; it must never apply external infrastructure.
 Run both webhook proof commands after changes to webhook policy, signing,
 transport, persistence, worker behavior, official verifier pins, or fixtures.
 Their traffic must remain on loopback with an injectable retry clock.
+
+Run all three tunnel proof commands after changes to tunnel policy, the link,
+the edge, the agent, persistence, proof fixtures, or either deployment pack. Their traffic
+must remain on loopback ports `1950x`, and the deployment pack is validated,
+never applied.
 
 ## Boundary law
 
@@ -84,6 +99,24 @@ Signed deliveries use the exact stored payload bytes. Attempt audit insertion
 and delivery state advancement are one SQLite transaction, and the audit is
 append-only. Retry schedules are bounded; replay keeps the original message ID
 and creates a fresh delivery identity.
+
+The tunnel specimen keeps policy in `internal/tunnel`, the WebSocket-plus-yamux
+control link in `internal/link`, the public reverse-proxy edge in
+`internal/edge`, the customer-side forwarder in `internal/agent`, management
+and read HTTP in `internal/api`, and persistence in `internal/store/sqlite`.
+Only `internal/link` may import the WebSocket or yamux libraries, and
+`internal/metrics` may import only the observer contract the edge defines. The
+diagnostics listener that serves metrics and gated pprof binds loopback only. One lifecycle
+table in `tunnel.Transition` decides every status change and the audit rows
+that record it; the exhaustive walk pins three reachable statuses and nine
+edges. A claim insert or revoke commits with its audit rows in one SQLite
+transaction; presence is in-memory and empties on restart by design. One mutex
+in the service sequences every status change and the audit commits before the
+routing table moves. Links are hijacked from net/http, so the accept handler
+owns their lifetime and ends them all before the store closes. The edge opens
+one fresh stream per request with keep-alives disabled so a pooled stream can
+never outlive the link that owns it, and it answers an unclaimed and an offline
+subdomain identically.
 
 ## Engineering principles
 
@@ -139,6 +172,13 @@ audit-read token. Neither token selects the audit actor, endpoint secrets are
 never returned by the read surface, and disabling an endpoint prevents future
 or already-queued sends.
 
+The tunnel specimen separates a management token, a read token, and per-claim
+agent tokens. The agent token is shown once at claim time and only its hash is
+stored; the read plane never returns credential material. A second agent with
+the same credential supersedes the first, which is closed with WebSocket status
+`4001` and must exit; a revoked claim closes its link with `4003` and its
+credential never authenticates again.
+
 Agents may implement an operator-requested change and run validation. They may not silently broaden supported flag kinds, rule operators, targeting data, write authority, or excluded capabilities.
 
 ## Change recipes
@@ -151,6 +191,9 @@ Agents may implement an operator-requested change and run validation. They may n
 - Storage: change one `internal/store/<mechanism>`; run the store contract, restart, conflict, and atomic-audit tests.
 - Webhook delivery: change only `specimens/webhook-delivery/`; run `make check`,
   `make webhook-demo`, and `make webhook-invariants` from the repository root.
+- Ingress tunnel: change only `specimens/ingress-tunnel/`; run `make check`,
+  `make tunnel-demo`, `make tunnel-invariants`, and `make tunnel-deploy-check`
+  from the repository root.
 
 ## Done means evidence
 
@@ -160,5 +203,6 @@ A change is complete only when:
 - `make check` passes, including race and boundary checks.
 - `make demo` passes when a runnable surface changed.
 - Both webhook proofs pass when the webhook specimen changed.
+- All three tunnel proofs pass when the tunnel specimen changed.
 - `WORK.md`, `AGENTS.md`, `CLAUDE.md`, `DOMAIN.md`, `REAPER.yaml`, and `README.md` remain consistent with the code.
 - The diff contains no unrelated cleanup or speculative capability.

@@ -31,8 +31,8 @@ verifiers accept through local runnable proofs.
 - `.gitignore`: keep nested verifier installations and bytecode out of the repository proof.
 - `Makefile`: expose webhook demo, invariant, and complete specimen proof targets.
 - `.github/workflows/ci.yml`: run the local-only webhook interoperability and invariant proof.
-- `README.md`: describe the second specimen, selection principle, runnable proof, and factory boundary honestly.
-- `REAPER.yaml`: declare both golden specimens in the artifact manifest.
+- `README.md`: describe the webhook specimen, selection principle, runnable proof, and factory boundary honestly.
+- `REAPER.yaml`: declare all three golden specimens in the artifact manifest.
 - `AGENTS.md`: extend the paired law with the webhook specimen's layers, proofs, and authority rules.
 - `CLAUDE.md`: keep the byte-identical projection of the extended law.
 - `WORK.md`: bind this exact task, proof, and stop boundary.
@@ -47,7 +47,8 @@ verifiers accept through local runnable proofs.
 ## Stop
 
 - Stop if the nested module requires root import coupling, a `go.work`, or factory capability changes.
-- Stop before any non-loopback demo dependency, external infrastructure, Gate invocation, or merge.
+- Stop before any non-loopback demo dependency or external infrastructure.
+- The operator authorized personal PR cleanup; merge only through an operator-issued grant and Gate-pinned command.
 - Stop after two review-fix rounds even if a broader architectural finding remains.
 
 ## Evidence
@@ -75,7 +76,7 @@ verifiers accept through local runnable proofs.
 
 ## Handoff
 
-- Last: the Claude review round removed the attempt coordinator in favour of
-  the store transaction, parked unauditable rows, and added the `failed` state.
-- Next: rerun every proof, push the exact head, request one `@codex review`,
-  and stop at the reviewed CI-green head without Gate or merge.
+- Last: reconciled the shared guides and validation wiring with merged tunnel
+  PRs #9-#11 and factory repair #13; both independent modules remain intact.
+- Next: revalidate the combined tree and record exact-head evidence. The
+  review-fix cap is exhausted; do not start another panel loop.
