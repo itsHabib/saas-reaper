@@ -23,7 +23,7 @@ func (s *Service) Evaluate(environment, key string, context map[string]any) (Eva
 	if !ok {
 		return Evaluation{}, fmt.Errorf("%w: %s", ErrNotFound, key)
 	}
-	return evaluate(flag, context)
+	return EvaluateDefinition(flag, context)
 }
 
 // List returns copied current definitions ordered by key.
@@ -32,6 +32,11 @@ func (s *Service) List(environment string) ([]Flag, error) {
 		return nil, err
 	}
 	return s.snapshot.List(environment), nil
+}
+
+// EvaluateDefinition resolves one validated definition from a captured snapshot.
+func EvaluateDefinition(flag Flag, context map[string]any) (Evaluation, error) {
+	return evaluate(flag, context)
 }
 
 func evaluate(flag Flag, context map[string]any) (Evaluation, error) {

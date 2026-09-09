@@ -63,9 +63,9 @@ type deliveryPack struct {
 }
 
 var languagePacks = []pack{
-	newPack("go", "Go", "Small compiled service with explicit internal packages", "v4"),
-	newPack("typescript", "TypeScript", "Node.js service with strict TypeScript", "v5"),
-	newPack("python", "Python", "Python service with explicit policy boundaries", "v4"),
+	newPack("go", "Go", "Small compiled service with explicit internal packages", "v5"),
+	newPack("typescript", "TypeScript", "Node.js service with strict TypeScript", "v6"),
+	newPack("python", "Python", "Python service with explicit policy boundaries", "v5"),
 }
 
 var databasePacks = []databasePack{
@@ -105,7 +105,7 @@ var deploymentPacks = []deploymentPack{
 		replicas:  ReplicaPolicy{Default: 1, Maximum: 1},
 	},
 	{
-		pack:           newPack("gcp-cloud-run", "GCP Cloud Run", "Managed GCP container service with Terraform", "v3"),
+		pack:           newPack("gcp-cloud-run", "GCP Cloud Run", "Managed GCP container service with Terraform", "v4"),
 		requiresShared: true,
 		databases:      []string{"postgres", "mongodb", "couchbase"},
 		replicas:       ReplicaPolicy{Default: 2},
