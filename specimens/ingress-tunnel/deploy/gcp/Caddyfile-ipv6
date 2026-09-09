@@ -1,5 +1,13 @@
 {
   admin off
+  log {
+    format filter {
+      wrap json
+      fields {
+        request>headers>X-Reaper-Origin delete
+      }
+    }
+  }
   email ${acme_email}
   auto_https disable_redirects
   servers {
@@ -38,6 +46,7 @@ ${control_host}:8443 {
     client_ip ${control_cidrs}
   }
   handle @allowed {
+    request_header -X-Reaper-Origin
     reverse_proxy 127.0.0.1:8081 {
       header_up -X-Reaper-Origin
       header_up -CF-Connecting-IP
@@ -59,6 +68,7 @@ ${edge_hosts} {
     client_ip ${edge_cidrs}
   }
   handle @allowed {
+    request_header -X-Reaper-Origin
     reverse_proxy 127.0.0.1:8080 {
       header_up -X-Reaper-Origin
       header_up -CF-Connecting-IP

@@ -85,6 +85,12 @@ with log_path.open('w') as logs:
         assert 'X-Reaper-Origin' not in payload['headers'], payload
         assert 'Cf-Connecting-Ip' not in payload['headers'], payload
         assert first[1].get('Cache-Control') == 'no-store', first
+        assert request(host='control.example.com:8443')[0] == 200
+        assert request(host='control.example.com:8443', key='wrong-origin-secret')[0] == 403
+        before_unknown = Target.calls
+        request(host='unmatched.example.com')
+        request(host='unmatched.example.com:8443')
+        assert Target.calls == before_unknown
         second = request()
         assert json.loads(second[2])['call'] != payload['call']
         for args in [dict(key='wrong-origin-secret'), dict(key=''),
@@ -94,6 +100,14 @@ with log_path.open('w') as logs:
         assert request(host='probe.example.com')[0] == 200
         assert request(host='probe.example.com', visitor='2001:db8::7')[0] == 200
         assert request(host='probe.example.com', key='wrong-origin-secret')[0] == 403
+        # A refused upstream produces http.log.error, not just an access record.
+        # Keep the production default logger: filtering only access logs leaks here.
+        target.shutdown()
+        target.server_close()
+        assert request()[0] == 502
+        assert request(host='probe.example.com')[0] == 502
+        assert request(key='wrong-origin-secret')[0] == 403
+        assert request(key='')[0] == 403
     finally:
         process.terminate()
         process.wait(timeout=10)
