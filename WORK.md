@@ -10,8 +10,8 @@ Stop-at: operator-decision
 
 Determine whether the GCP tunnel can omit public IPv4 without paid NAT while
 preserving IPv4-client access, transport behavior, and authority boundaries.
-Package an opt-in exact-host IPv6 deployment and its proofs in a draft PR; the
-coordinating agent owns live validation and any approved migration.
+Land the validated opt-in exact-host IPv6 deployment through Gate after
+reconciling main, rerunning checks, and judging the exact head.
 
 ## Preserve
 
@@ -55,4 +55,5 @@ coordinating agent owns live validation and any approved migration.
 ## Handoff
 
 - Last: published opt-in packaging and the default-log redaction fix; coordinating agent validated replacement and removed the old IPv4 reservation.
-- Next: review live evidence and assess remaining real-app/renewal/billing acceptance.
+- Next: finish exact-head checks and review, then merge using the operator grant and Gate-pinned command.
+- Reconciled merged non-tunnel fixes from PR #13; its detailed evidence remains in docs/non-tunnel-review.md.

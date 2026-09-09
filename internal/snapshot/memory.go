@@ -32,7 +32,7 @@ func (m *Memory) Replace(loaded map[string][]flags.Flag) {
 	m.mu.Unlock()
 }
 
-// Put installs one committed definition.
+// Put installs a committed definition unless a newer revision is already projected.
 func (m *Memory) Put(environment string, flag flags.Flag) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -40,6 +40,9 @@ func (m *Memory) Put(environment string, flag flags.Flag) {
 	if current == nil {
 		current = make(map[string]flags.Flag)
 		m.flags[environment] = current
+	}
+	if previous, exists := current[flag.Key]; exists && previous.Revision >= flag.Revision {
+		return
 	}
 	current[flag.Key] = flag.Copy()
 }
