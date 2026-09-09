@@ -1,0 +1,17 @@
+{
+  "name": "reaper-webhook-typescript-receiver",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "start": "tsx receiver.ts"
+  },
+  "dependencies": {
+    "standardwebhooks": "1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2"
+  }
+}

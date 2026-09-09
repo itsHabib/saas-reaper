@@ -16,4 +16,5 @@ examples/python/.venv/bin/python -m pip install \
   --quiet \
   -r examples/python/requirements.txt
 
+make -C specimens/webhook-delivery setup
 make -C specimens/ingress-tunnel setup

@@ -82,6 +82,29 @@ Run the validation floor:
 make check
 ```
 
+The webhook-delivery specimen lives in
+[`specimens/webhook-delivery`](specimens/webhook-delivery). Outbound webhook
+delivery fits the Reaper's selection rule unusually well: it is sold like
+infrastructure even though the essential product is an HTTP POST, an HMAC
+signature, durable state, and a bounded retry loop. The independent nested Go
+module keeps that capability adjacent to the future factory source without
+pretending the factory supports it today—`validate.go` still rejects every
+capability except `feature-flags`. Its local proof sends real deliveries to
+receivers using the official Standard Webhooks Go, JavaScript, and Python
+verifier libraries, including a signature-tamper rejection in each language.
+The receivers also compare Base64 of the received body to the literal fixture,
+so equivalent JSON reserialization cannot satisfy the exact-byte proof.
+
+Run the webhook proofs without external runtime traffic:
+
+```sh
+make setup # install the pinned verifier libraries once
+make webhook-demo
+make webhook-invariants
+# static checks plus both runnable proofs
+make webhook-proof
+```
+
 The ingress-tunnel specimen lives in
 [`specimens/ingress-tunnel`](specimens/ingress-tunnel). Hosted tunnels are the
 purest case of the selection rule: the product is a persistent connection, a

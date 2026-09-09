@@ -4,6 +4,8 @@ artifact: factory-and-golden-specimens
 specimens:
   - name: feature-flags
     path: .
+  - name: webhook-delivery
+    path: specimens/webhook-delivery
   - name: ingress-tunnel
     path: specimens/ingress-tunnel
 
