@@ -20,7 +20,8 @@ Read, in order:
 6. The relevant repo skill under `skills/`.
 
 Tunnel specimen work also reads `specimens/ingress-tunnel/README.md` and
-`specimens/ingress-tunnel/deploy/aws/README.md`. Keep the module independent: do
+`specimens/ingress-tunnel/deploy/aws/README.md` and, for GCP work,
+`specimens/ingress-tunnel/deploy/gcp/README.md`. Keep the module independent: do
 not add a root import, `go.work`, or a tunnel capability to the factory as part
 of specimen maintenance.
 
@@ -53,7 +54,7 @@ archive delivery, or deployment packs. Generation must refuse existing output
 paths and unsafe combinations; it must never apply external infrastructure.
 
 Run all three tunnel proof commands after changes to tunnel policy, the link,
-the edge, the agent, persistence, proof fixtures, or the AWS pack. Their traffic
+the edge, the agent, persistence, proof fixtures, or either deployment pack. Their traffic
 must remain on loopback ports `1950x`, and the deployment pack is validated,
 never applied.
 

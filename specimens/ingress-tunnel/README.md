@@ -166,3 +166,17 @@ specimen stands on the first:
 
 The last two are the things a hosted tunnel sells that this specimen leaves for the fork, and
 they are documented as such rather than shipped half-built.
+
+## GCP and a Slack pilot
+
+The [GCP pack](deploy/gcp/README.md) adds a single E2 VM, a retained state disk, private
+build artifacts, Secret Manager credentials, and wildcard Cloud DNS/TLS. It requires an
+existing billing-enabled project and publicly delegated parent DNS zone. It creates and
+delegates a child zone, granting the host authority only over that child. The control allowlist
+is required. Updates replace the host deliberately while retaining claims, certificates,
+and the public address. GCP has now passed a [live validation](deploy/gcp/LIVE-VALIDATION.md), including VM replacement. AWS remains unverified; mocked plans are not a live apply.
+
+The demo also carries a synthetic Slack v0 signed form through the tunnel: a valid callback
+must acknowledge within three seconds, while a modified body and stale timestamp fail.
+It sends no Slack messages. The [live pilot checklist](deploy/gcp/SLACK-PILOT.md) describes
+how to validate the actual escalation app before switching away from ngrok.

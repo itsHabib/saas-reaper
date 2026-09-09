@@ -39,6 +39,9 @@ func run() error {
 	})
 	mux.HandleFunc("GET /whoami", whoami(name))
 	mux.HandleFunc("POST /echo", echo)
+	if secret := os.Getenv("TARGET_SLACK_SECRET"); secret != "" {
+		mux.HandleFunc("POST /slack/actions", slackCallback(secret))
+	}
 	mux.HandleFunc("GET /stream", stream)
 	mux.HandleFunc("GET /ws", websocketEcho(name))
 	server := &http.Server{Addr: address, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
