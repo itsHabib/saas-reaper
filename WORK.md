@@ -1,80 +1,63 @@
 <!-- reaper-work:v1 -->
-# Work: Couchbase database pack
+# Work: Non-tunnel review fixes
 
-Work-ID: couchbase-database-pack
+Work-ID: non-tunnel-review-fixes
 Status: active
-Subject: git:a9258ba86b4248aeb4990f3f8c88ca052db566ec
+Subject: git:6517797efde09c323f53c165899caf3bd15c5fbc
 Stop-at: reviewed-change
 
 ## Outcome
 
-The factory catalogs a shared `couchbase` database authority with template
-packs for Go, TypeScript, and Python that preserve optimistic revisions,
-insert-based concurrent creation, atomic definition-plus-audit publication,
-and restart durability, proven by the render matrix, the compose validation,
-and the black-box invariant and conformance harnesses against a local
-Couchbase container.
+Review the factory, flag service, and the four non-tunnel specimen heads;
+fix reproduced defects with regression coverage and open a reviewable PR.
+Record executable evidence separately from untested cloud deployment claims.
 
 ## Preserve
 
-- SQLite and PostgreSQL packs, evaluation semantics, and API behavior stay
-  byte-identical apart from pack-version metadata.
-- The conformance and invariant harnesses stay unchanged; Couchbase must pass
-  them as-is.
-- Root `AGENTS.md` and `CLAUDE.md` remain byte-identical and untouched.
+- Evaluation ordering, rollout hashing, targeting policy, and token separation.
+- Independent specimen modules and their existing PR bases.
+- Customer-selected deployment and language combinations.
+- No cloud provisioning and no merges.
 
 ## Change
 
-- `internal/factory/catalog.go`: register the shared `couchbase` pack, add it
-  to every deployment carrying postgres, bump docker and aws-ec2 packs.
-- `internal/factory/templates/languages/go/couchbase/`: Go store pack with
-  gocb v2 and pinned manifests.
-- `internal/factory/templates/languages/typescript/couchbase/`: TypeScript
-  store pack with the couchbase SDK.
-- `internal/factory/templates/languages/python/couchbase/`: Python store pack
-  with the couchbase SDK.
-- `internal/factory/templates/deployments/docker/`: couchbase compose service
-  plus one-shot cluster-init.
-- `internal/factory/templates/deployments/aws-ec2/`: shared authorities use
-  the database-url secret branch.
-- `internal/factory/contract_test.go`: pin the insert/exists-error conflict
-  markers for all three couchbase stores.
-- `internal/factory/render.go`: bump `FactoryVersion`.
-- `REAPER.yaml`: catalog gains couchbase.
-- `recipes/`: go, typescript, and python couchbase-docker recipes.
-- `scripts/product-demo.sh`: generate, validate, and check couchbase repos.
-- `CONTRIBUTING.md`: record the local container-evidence procedure.
-- `WORK.md`: this contract.
+- `internal/snapshot/memory.go`: preserve the newest committed revision.
+- `internal/flags/`: expose captured-definition evaluation and regressions.
+- `internal/api/`: evaluate one bulk snapshot and reject empty targeting keys.
+- `internal/factory/`: quote attributes, reject unusable names, repair templates,
+  bump receipts, and cover regressions.
+- `README.md`: document deployment naming limits.
+- `docs/non-tunnel-review.md`: record reviewed heads and proof boundaries.
+- `WORK.md`: maintain this work record.
 
 ## Prove
 
-- Green: `make check` passes, including the new concurrent-create contract
-  test and the full render matrix with couchbase rows.
-- Green: `make product-demo` passes with couchbase compose validation and
-  setup-plus-check runs for all three couchbase language packs.
-- Green: `scripts/invariants.sh` and `scripts/conformance.sh` pass against a
-  generated Go/couchbase service on a local Couchbase container.
-- Red: a stale expectedRevision receives 409; the losing concurrent creator
-  receives 409 from the insert exists-error, never an upsert; the harness
-  fails if any audit row appears for a failed publish or is lost on restart.
+- Green: make check, make demo, and make product-demo.
+- Green: targeted regression tests pass under the race detector.
+- Red: delayed revision 2 cannot overwrite projected revision 3.
+- Red: bulk responses cannot reread a newer definition after listing.
+- Red: inherited variant names, empty targeting keys, and invalid deployment
+  names are rejected; quotes in recipe attributes cannot break Python imports.
+- Red: generated Cloud Run configuration never declares a PORT environment
+  variable; the container port remains configured.
 
 ## Stop
 
-- Stop before booting Couchbase containers inside product-demo or CI; the
-  container evidence stays a documented local procedure.
-- Stop at a reviewed pull request; do not merge.
+- Stop at fixes PRs with validation evidence; do not merge or run Gate.
+- Do not apply infrastructure or edit another session's checkout.
 
 ## Evidence
 
-- Verified: `make check` green at this head.
-- Verified: `make product-demo` green with couchbase compose validation and
-  setup-plus-check for the go, typescript, and python couchbase repos.
-- Verified: local Couchbase container runs green — invariants for generated
-  go, typescript, and python services, conformance for go, and
-  `DATABASE_URL=... make demo` for the generated go repository.
+- Baseline make check and make product-demo passed.
+- New regression tests reproduced publication ordering, bulk snapshot,
+  empty targeting key, deployment-name, PORT, and attribute-encoding defects.
+- Fixed targeted Go race tests and generated TypeScript tests pass.
+- Final make check, make demo, and make product-demo pass.
+- Detailed specimen heads, proof results, and limitations are recorded in
+  docs/non-tunnel-review.md.
 
 ## Handoff
 
-- Last: packs implemented, verification bar green, container evidence
-  captured; the procedure is recorded in `CONTRIBUTING.md`.
-- Next: open the pull request, gather review, and fold findings.
+- Last: confirmed defects repaired and local proofs green; incident proof fix
+  is PR #12, based on the existing incident branch.
+- Next: publish the main fixes and inspect CI and automated review results.

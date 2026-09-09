@@ -34,7 +34,7 @@ export function validateFlag(input: unknown, key: string): Flag {
   const kind = requireKind(record.kind);
   const variants = requireVariants(record.variants, kind);
   const defaultVariant = requireString(record.defaultVariant, "defaultVariant");
-  if (!(defaultVariant in variants)) {
+  if (!(Object.hasOwn(variants, defaultVariant))) {
     throw new Error(`default variant ${defaultVariant} is not defined`);
   }
   const rules = requireRules(record.rules ?? [], variants);
@@ -89,7 +89,7 @@ function requireVariants(value: unknown, kind: "boolean" | "string"): Record<str
   if (Object.keys(record).length === 0) {
     throw new Error("at least one variant is required");
   }
-  const variants: Record<string, FlagValue> = {};
+  const variants: Record<string, FlagValue> = Object.create(null) as Record<string, FlagValue>;
   for (const [name, candidate] of Object.entries(record)) {
     if (typeof candidate !== kind) {
       throw new Error(`variant ${name} must contain a ${kind}`);
@@ -107,7 +107,7 @@ function requireRules(value: unknown, variants: Record<string, FlagValue>): Rule
     const record = requireRecord(candidate, `rule ${index}`);
     const attribute = requireApprovedAttribute(record.attribute);
     const variant = requireString(record.variant, `rule ${index} variant`);
-    if (!(variant in variants)) {
+    if (!(Object.hasOwn(variants, variant))) {
       throw new Error(`rule variant ${variant} is not defined`);
     }
     return {
@@ -128,7 +128,7 @@ function requireRollout(value: unknown, variants: Record<string, FlagValue>): Ro
     throw new Error("rollout percentage must be a whole number from 0 to 100");
   }
   const variant = requireString(record.variant, "rollout variant");
-  if (!(variant in variants)) {
+  if (!(Object.hasOwn(variants, variant))) {
     throw new Error(`rollout variant ${variant} is not defined`);
   }
   return {

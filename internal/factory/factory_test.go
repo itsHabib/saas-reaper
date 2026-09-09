@@ -245,7 +245,8 @@ func testLanguageMatrix(t *testing.T, root, language string) {
 func testCatalogCombination(t *testing.T, root, language, database, deployment string) {
 	t.Helper()
 	recipe := DefaultRecipe()
-	recipe.Name = language + "-" + database + "-" + deployment
+	combination := language + "-" + database + "-" + deployment
+	recipe.Name = "matrix-flags"
 	recipe.Service.Language = language
 	recipe.Database.Authority = database
 	recipe.Deployment.Target = deployment
@@ -261,7 +262,7 @@ func testCatalogCombination(t *testing.T, root, language, database, deployment s
 		return
 	}
 	recipe.Deployment.Replicas = selected.replicas.Default
-	result, err := Generate(recipe, filepath.Join(root, recipe.Name))
+	result, err := Generate(recipe, filepath.Join(root, combination))
 	if err != nil {
 		t.Fatalf("generate %s: %v", recipe.Name, err)
 	}
@@ -391,4 +392,54 @@ func directoryContents(t *testing.T, root string) map[string][]byte {
 		t.Fatal(err)
 	}
 	return files
+}
+
+func TestValidateDeploymentNames(t *testing.T) {
+	cases := []struct {
+		name, target string
+		valid        bool
+	}{
+		{"bad-", "docker", false},
+		{"ab", "docker", true},
+		{strings.Repeat("a", 63), "docker", true},
+		{strings.Repeat("a", 32), "aws-ecs", true},
+		{strings.Repeat("a", 33), "aws-ecs", false},
+		{"internal-flags", "aws-ecs", false},
+		{"short", "gcp-cloud-run", false},
+		{"sixsix", "gcp-cloud-run", true},
+		{strings.Repeat("a", 30), "gcp-cloud-run", true},
+		{strings.Repeat("a", 31), "gcp-cloud-run", false},
+	}
+	for _, candidate := range cases {
+		t.Run(candidate.target+"/"+candidate.name, func(t *testing.T) {
+			recipe := DefaultRecipe()
+			recipe.Name = candidate.name
+			recipe.Database.Authority = "postgres"
+			recipe.Deployment.Target = candidate.target
+			err := Validate(recipe)
+			if (err == nil) != candidate.valid {
+				t.Fatalf("Validate = %v, want valid=%t", err, candidate.valid)
+			}
+		})
+	}
+}
+
+func TestCloudRunLeavesPortToRuntime(t *testing.T) {
+	recipe := DefaultRecipe()
+	recipe.Database.Authority = "postgres"
+	recipe.Deployment.Target = "gcp-cloud-run"
+	result, err := Generate(recipe, filepath.Join(t.TempDir(), "cloud-run"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(result.Directory, "deploy/gcp-cloud-run/main.tf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `name  = "PORT"`) {
+		t.Fatal("Cloud Run rejects user-defined PORT environment variables")
+	}
+	if !strings.Contains(string(body), "container_port = 8080") {
+		t.Fatal("missing runtime port configuration")
+	}
 }

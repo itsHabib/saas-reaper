@@ -37,7 +37,7 @@ class Flag:
 
 APPROVED_ATTRIBUTES = frozenset(
     (
-{{range .Recipe.Domain.TargetingAttributes}}        "{{.}}",
+{{range .AttributeLiterals}}        {{.}},
 {{end}}    )
 )
 

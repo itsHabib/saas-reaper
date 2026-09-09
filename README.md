@@ -46,7 +46,9 @@ Supported deployment packs are Docker Compose, AWS ECS/Fargate, AWS EC2, GCP
 Cloud Run, and Kubernetes/Kustomize. Managed and multi-replica targets require
 a shared authority (PostgreSQL, MongoDB, or Couchbase); unsafe SQLite
 combinations are
-rejected before rendering.
+rejected before rendering. Names must end with a letter or digit. The ECS pack
+accepts at most 32 characters and rejects the reserved `internal-` prefix; the
+Cloud Run pack requires 6–30 characters for its service account.
 
 Run the factory proof:
 
