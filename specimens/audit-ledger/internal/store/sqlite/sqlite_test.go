@@ -87,6 +87,33 @@ func TestAppendOnlyTriggersRejectMutation(t *testing.T) {
 	}
 }
 
+// TestAppendOnlyTriggerCatchesImplicitReplaceDelete covers INSERT OR
+// REPLACE, whose implicit delete of the conflicting row only fires
+// entries_no_delete when recursive_triggers is on. Without that pragma this
+// statement silently replaces the row instead of aborting.
+func TestAppendOnlyTriggerCatchesImplicitReplaceDelete(t *testing.T) {
+	store, _ := openTestStore(t)
+	service := testService(t, store)
+	if _, err := service.Append(context.Background(), []ledger.Event{event("acme", "evt-1")}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	_, err := store.db.ExecContext(context.Background(),
+		`INSERT OR REPLACE INTO entries
+			(tenant, sequence, id, actor, action, target, occurred_at, recorded_at, source, metadata, previous_hash, hash)
+			SELECT tenant, sequence, id, 'mallory', action, target, occurred_at, recorded_at, source, metadata, previous_hash, hash
+			FROM entries WHERE tenant = 'acme' AND sequence = 1`)
+	if err == nil || !strings.Contains(err.Error(), "append-only") {
+		t.Fatalf("INSERT OR REPLACE: error %v, want append-only trigger abort", err)
+	}
+	entries, err := store.Entries(context.Background(), "acme", 0, 10)
+	if err != nil {
+		t.Fatalf("entries: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Actor != "user:ada" {
+		t.Fatalf("entries after rejected replace: %+v", entries)
+	}
+}
+
 func TestAppendIsAtomicAndSurvivesReopen(t *testing.T) {
 	store, path := openTestStore(t)
 	service := testService(t, store)

@@ -62,6 +62,17 @@ class CanonicalTest(unittest.TestCase):
         with self.assertRaises(verify.ContractError):
             verify.parse_row('{"sequence": 1.0}', 1)
 
+    def test_rejects_nesting_beyond_the_shared_depth_limit(self):
+        # Mirrors ledger.MaxMetadataDepth: a leaf at depth 32 (32 wrapping
+        # lists) is still accepted, one more wrapping layer is not.
+        within_limit = 1
+        for _ in range(verify.MAX_METADATA_DEPTH):
+            within_limit = [within_limit]
+        verify.canonical(within_limit)  # does not raise
+        beyond_limit = [within_limit]
+        with self.assertRaises(verify.ContractError):
+            verify.canonical(beyond_limit)
+
 
 class VerifyTest(unittest.TestCase):
     def test_intact_chain_reports_head(self):
@@ -133,6 +144,16 @@ class VerifyTest(unittest.TestCase):
     def test_missing_member_is_unreadable(self):
         rows = chain(1)
         del rows[0]["source"]
+        with self.assertRaises(verify.ContractError):
+            verify.verify(lines(rows))
+
+    def test_oversized_metadata_is_rejected(self):
+        # Mirrors ledger.MaxMetadataBytes (canonical.go): the Go service
+        # refuses to store this, so the verifier must not report it ok even
+        # though row() can still hash it (hashing has no size cap, only
+        # link() -- exercised via verify() here -- does).
+        big_metadata = {"blob": "x" * verify.MAX_METADATA_BYTES}
+        rows = [row(1, verify.GENESIS, big_metadata)]
         with self.assertRaises(verify.ContractError):
             verify.verify(lines(rows))
 

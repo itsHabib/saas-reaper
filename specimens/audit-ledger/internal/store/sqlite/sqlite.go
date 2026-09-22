@@ -65,6 +65,11 @@ func (s *Store) prepare(ctx context.Context) error {
 		`PRAGMA journal_mode = WAL`,
 		`PRAGMA synchronous = FULL`,
 		`PRAGMA busy_timeout = 5000`,
+		// Off by default, an implicit replacement delete from INSERT OR
+		// REPLACE would not fire entries_no_delete, letting a write silently
+		// replace an existing row instead of aborting on the append-only
+		// trigger.
+		`PRAGMA recursive_triggers = ON`,
 	}
 	for _, statement := range pragmas {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {

@@ -15,6 +15,10 @@ import sys
 
 GENESIS = "0" * 64
 MAX_SAFE_INTEGER = 2**53 - 1
+# Mirrors ledger.MaxMetadataDepth / ledger.MaxMetadataBytes (canonical.go) so
+# a crafted export that the Go service would reject cannot verify as ok.
+MAX_METADATA_DEPTH = 32
+MAX_METADATA_BYTES = 64 * 1024
 ENTRY_MEMBERS = (
     "action",
     "actor",
@@ -67,7 +71,9 @@ def canonical_integer(value):
     return str(value)
 
 
-def canonical(value):
+def canonical(value, depth=0):
+    if depth > MAX_METADATA_DEPTH:
+        raise ContractError("nesting exceeds %d levels" % MAX_METADATA_DEPTH)
     if value is None:
         return "null"
     if value is True:
@@ -79,9 +85,9 @@ def canonical(value):
     if isinstance(value, int):
         return canonical_integer(value)
     if isinstance(value, list):
-        return "[" + ",".join(canonical(item) for item in value) + "]"
+        return "[" + ",".join(canonical(item, depth + 1) for item in value) + "]"
     if isinstance(value, dict):
-        members = (canonical_string(key) + ":" + canonical(value[key]) for key in sorted(value))
+        members = (canonical_string(key) + ":" + canonical(value[key], depth + 1) for key in sorted(value))
         return "{" + ",".join(members) + "}"
     raise ContractError("unsupported value of type %s" % type(value).__name__)
 
@@ -127,6 +133,11 @@ def check_member_types(row, number):
 def link(previous_hash, row):
     entry = {member: row[member] for member in ENTRY_MEMBERS}
     try:
+        metadata_bytes = len(canonical(entry["metadata"]).encode("utf-8"))
+        if metadata_bytes > MAX_METADATA_BYTES:
+            raise ContractError(
+                "sequence %s: canonical metadata exceeds %d bytes" % (row["sequence"], MAX_METADATA_BYTES)
+            )
         material = canonical(entry).encode("utf-8") + previous_hash.encode("ascii")
     except UnicodeEncodeError as error:
         raise ContractError("sequence %s: %s" % (row["sequence"], error)) from error
