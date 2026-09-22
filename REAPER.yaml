@@ -8,6 +8,8 @@ specimens:
     path: specimens/webhook-delivery
   - name: audit-ledger
     path: specimens/audit-ledger
+  - name: ingress-tunnel
+    path: specimens/ingress-tunnel
 
 factory:
   languages:

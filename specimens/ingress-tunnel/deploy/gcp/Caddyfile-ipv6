@@ -1,0 +1,81 @@
+{
+  admin off
+  log {
+    format filter {
+      wrap json
+      fields {
+        request>headers>X-Reaper-Origin delete
+      }
+    }
+  }
+  email ${acme_email}
+  auto_https disable_redirects
+  servers {
+    trusted_proxies static ${cloudflare_cidrs}
+    trusted_proxies_strict
+    client_ip_headers CF-Connecting-IP
+  }
+}
+(origin_log) {
+  log {
+    output stdout
+    format filter {
+      wrap json
+      fields {
+        request>headers>X-Reaper-Origin delete
+      }
+    }
+  }
+}
+(origin_tls) {
+  tls {
+    issuer acme {
+      dir https://acme-v02.api.letsencrypt.org/directory
+      disable_tlsalpn_challenge
+    }
+  }
+}
+${control_host}:8443 {
+  import origin_tls
+  import origin_log
+  header >Cache-Control "no-store"
+  @allowed {
+    remote_ip ${cloudflare_cidrs}
+    header X-Reaper-Origin {$REAPER_ORIGIN_TOKEN}
+    expression `{client_ip} == {http.request.header.CF-Connecting-IP}`
+    client_ip ${control_cidrs}
+  }
+  handle @allowed {
+    request_header -X-Reaper-Origin
+    reverse_proxy 127.0.0.1:8081 {
+      header_up -X-Reaper-Origin
+      header_up -CF-Connecting-IP
+      header_up X-Forwarded-For {client_ip}
+    }
+  }
+  handle {
+    respond 403
+  }
+}
+${edge_hosts} {
+  import origin_tls
+  import origin_log
+  header >Cache-Control "no-store"
+  @allowed {
+    remote_ip ${cloudflare_cidrs}
+    header X-Reaper-Origin {$REAPER_ORIGIN_TOKEN}
+    expression `{client_ip} == {http.request.header.CF-Connecting-IP}`
+    client_ip ${edge_cidrs}
+  }
+  handle @allowed {
+    request_header -X-Reaper-Origin
+    reverse_proxy 127.0.0.1:8080 {
+      header_up -X-Reaper-Origin
+      header_up -CF-Connecting-IP
+      header_up X-Forwarded-For {client_ip}
+    }
+  }
+  handle {
+    respond 403
+  }
+}

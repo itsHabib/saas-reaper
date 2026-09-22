@@ -3,7 +3,7 @@
 
 Work-ID: audit-ledger-specimen
 Status: active
-Subject: git:bb8061ec1eaf1184170900eb684aa875a3f1e6a8
+Subject: git:2b423b88dde611f52ad61f59e6630fa530008feb
 Stop-at: reviewed-change
 
 ## Outcome
@@ -55,14 +55,16 @@ locates any tampered row.
 - Verified: nested `make check`, `make demo`, and `make invariants` pass locally.
 - Verified: Go known-answer tests match hashes produced by the Python verifier without shared code.
 - Verified: the nested check passes after rebasing onto the current webhook base.
-- Pending: root and CI checks on the pushed rebased head.
+- Pending: root and CI checks on the pushed reconciled head.
 - Reviewed: the first Codex round's exact-schema and integer-sequence findings
   and the second round's U+FFFD-domain and unreadable-input findings were each
   reproduced, fixed, and covered by regression tests.
 
 ## Handoff
 
-- Last: rebased onto webhook head `bb8061e`, retained the audit-ledger work
-  contract, and declared the specimen in `REAPER.yaml`.
-- Next: push the rebased exact head, resolve the answered Codex threads after
-  verification, and stop at the CI-green head without Gate or merge.
+- Last: merged the webhook-delivery branch's new tip (which now also carries
+  the merged ingress-tunnel specimen, PRs #9-#11/#13, and main's IPv6
+  packaging #14) into this branch; only the shared root docs/scripts and
+  `WORK.md` conflicted, all resolved by combining both sides.
+- Next: revalidate the combined tree (`make check`) and record exact-head
+  evidence. The review-fix cap is exhausted; do not start another panel loop.

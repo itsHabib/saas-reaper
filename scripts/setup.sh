@@ -18,3 +18,4 @@ examples/python/.venv/bin/python -m pip install \
 
 make -C specimens/webhook-delivery setup
 make -C specimens/audit-ledger setup
+make -C specimens/ingress-tunnel setup
