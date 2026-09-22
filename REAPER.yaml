@@ -8,6 +8,8 @@ specimens:
     path: specimens/webhook-delivery
   - name: incident-escalation
     path: specimens/incident-escalation
+  - name: ingress-tunnel
+    path: specimens/ingress-tunnel
 
 factory:
   languages:

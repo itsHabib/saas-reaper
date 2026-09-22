@@ -33,10 +33,6 @@ resource "google_cloud_run_v2_service" "flags" {
       image = var.container_image
       ports { container_port = 8080 }
       env {
-        name  = "PORT"
-        value = "8080"
-      }
-      env {
         name  = "REAPER_ADMIN_ACTOR"
         value = var.admin_actor
       }

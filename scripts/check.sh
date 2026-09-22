@@ -27,3 +27,4 @@ examples/python/.venv/bin/python -m py_compile examples/python/client.py
 ./scripts/check-domain-adaptation.sh
 make -C specimens/webhook-delivery check
 make -C specimens/incident-escalation check
+make -C specimens/ingress-tunnel check

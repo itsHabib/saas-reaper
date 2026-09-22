@@ -3,7 +3,7 @@
 
 Work-ID: incident-escalation-specimen
 Status: active
-Subject: git:9334a0bbc99df69dc19abd834249ee89c23cb57e
+Subject: git:2b423b88dde611f52ad61f59e6630fa530008feb
 Stop-at: reviewed-change
 
 ## Outcome
@@ -60,11 +60,14 @@ proves its compatibility against a real, unmodified Prometheus Alertmanager.
 - Reviewed: the first `@codex review` round found two P1s, both reproduced and fixed. A lost ingest race could surface as HTTP 409, which the upstream retrier drops, silently discarding a resolve; the re-apply is now bounded and a persistent conflict answers 503. Raw transport errors reached the audit carrying destination URLs and SMTP reply text; a transport now returns one classification from its own vocabulary and policy persists nothing else.
 - Verified: a new invariant probe pages an unreachable destination and proves the audit records a classification with no host, path, or port.
 - Reviewed: the second `@codex review` found no major issues at `25de9a6`.
-- Pending: root and CI checks on the pushed rebased head.
 
 ## Handoff
 
 - Last: rebased the reviewed commits onto the current webhook base and retained
-  the base manifest shape while declaring incident escalation.
-- Next: push the rebased exact head, resolve the answered Codex threads after
-  verification, and stop at the CI-green head without Gate or merge.
+  the base manifest shape while declaring incident escalation; then merged the
+  webhook-delivery branch's new tip (which now also carries the merged
+  ingress-tunnel specimen and main's IPv6 packaging #14) into this branch —
+  only the shared root docs/scripts and `WORK.md` conflicted, all resolved by
+  combining both sides.
+- Next: confirm the reconciled head is CI-green and stop there without Gate or
+  merge. The review-fix cap is exhausted; do not start another panel loop.
