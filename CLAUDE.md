@@ -1,10 +1,11 @@
 # Agent operating guide
 
-This repository contains the SaaS Reaper factory and three customer-owned golden
+This repository contains the SaaS Reaper factory and four customer-owned golden
 specimens: the root Go feature-flag service, the independent Go outbound
-webhook-delivery module under `specimens/webhook-delivery/`, and the independent
-ingress-tunnel module under `specimens/ingress-tunnel/`. The factory still
-composes feature-flag services only. The proofs are intentionally bounded;
+webhook-delivery module under `specimens/webhook-delivery/`, the independent
+Go append-only audit ledger under `specimens/audit-ledger/`, and the
+independent ingress-tunnel module under `specimens/ingress-tunnel/`. The
+factory still composes feature-flag services only. The proofs are intentionally bounded;
 preserve their compatibility rules unless the operator explicitly expands them.
 
 `AGENTS.md` and `CLAUDE.md` are paired entrypoints. Keep them byte-identical.
@@ -23,6 +24,14 @@ Read, in order:
 Webhook specimen work also reads `specimens/webhook-delivery/README.md`. Keep
 that module independent: do not add a root import, `go.work`, or webhook
 capability to the factory as part of specimen maintenance.
+
+Audit ledger specimen work reads `specimens/audit-ledger/README.md`. That
+module keeps chain policy in `internal/ledger`, HTTP in `internal/api`, and
+persistence in `internal/store/sqlite`; its canonical JSON encoding is a wire
+contract shared with the independent Python verifier, so change both sides
+and the README together or not at all. Run `make audit-demo` and
+`make audit-invariants` after changes to canonicalization, chaining,
+idempotency, tenant scope, or the entries schema.
 
 Tunnel specimen work also reads `specimens/ingress-tunnel/README.md` and
 `specimens/ingress-tunnel/deploy/aws/README.md` and, for GCP work,

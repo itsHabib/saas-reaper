@@ -1,83 +1,70 @@
 <!-- reaper-work:v1 -->
-# Work: Customer-owned webhook delivery specimen
+# Work: Customer-owned audit ledger specimen
 
-Work-ID: webhook-delivery-specimen
+Work-ID: audit-ledger-specimen
 Status: active
-Subject: git:2371c58101c524f02d5f67e504a8438606a50988
-Stop-at: operator-decision
+Subject: git:2b423b88dde611f52ad61f59e6630fa530008feb
+Stop-at: reviewed-change
 
 ## Outcome
 
-An in-repository, customer-owned Go webhook-delivery specimen registers and
-disables endpoints, publishes exact payload bytes, signs Standard Webhooks
-deliveries, retries failures on a bounded schedule, replays messages, and
-persists an append-only attempt audit that official Go, JavaScript, and Python
-verifiers accept through local runnable proofs.
+An in-repository, customer-owned Go audit-ledger specimen ingests events
+idempotently, assigns gapless per-tenant sequences, links entries with a
+SHA-256 hash chain inside one SQLite transaction, refuses mutation at the
+database layer, scopes reads per tenant, and streams an export that an
+independent Python verifier recomputes to the same head hash and in which it
+locates any tampered row.
 
 ## Preserve
 
-- The feature-flags golden specimen and factory output stay behaviorally unchanged.
+- The feature-flags and webhook-delivery specimens and factory output stay behaviorally unchanged.
 - `internal/factory/validate.go` continues to reject every capability other than `feature-flags`.
-- Policy, HTTP transport, persistence, and worker mechanisms remain one-way layers with consumer-owned interfaces.
-- Management and audit-read credentials stay separate; the configured principal supplies the audit actor.
-- Demo and CI delivery traffic stays on loopback and no external infrastructure is provisioned.
+- Ledger policy, HTTP transport, and SQLite persistence remain one-way layers with consumer-owned interfaces.
+- Write and read credentials stay separate; the configured write principal supplies every entry's source.
+- Demo and CI traffic stays on loopback ports 19601 and 19602 with no external infrastructure.
 
 ## Change
 
-- `specimens/webhook-delivery/`: add the independent Go module, official verifier fixtures, local demo, invariant probes, and scoped checks.
-- `scripts/setup.sh`: install the nested specimen's pinned dependencies.
+- `specimens/audit-ledger/`: add the independent Go module, Python verifier, fixtures, local demo, invariant probes, module lint config, and scoped checks.
+- `scripts/setup.sh`: download the nested module's pinned dependencies.
 - `scripts/check.sh`: include the nested module in the root verification floor.
-- `scripts/check-boundaries.sh`: exclude installed nested dependencies while continuing to scan authored specimen source.
-- `.gitignore`: keep nested verifier installations and bytecode out of the repository proof.
-- `Makefile`: expose webhook demo, invariant, and complete specimen proof targets.
-- `.github/workflows/ci.yml`: run the local-only webhook interoperability and invariant proof.
-- `README.md`: describe the webhook specimen, selection principle, runnable proof, and factory boundary honestly.
-- `REAPER.yaml`: declare all three golden specimens in the artifact manifest.
-- `AGENTS.md`: extend the paired law with the webhook specimen's layers, proofs, and authority rules.
-- `CLAUDE.md`: keep the byte-identical projection of the extended law.
+- `.gitignore`: keep verifier bytecode out of the repository proof.
+- `Makefile`: expose audit demo, invariant, and complete specimen proof targets.
+- `.github/workflows/ci.yml`: cache the nested module and run the loopback-only audit proof job.
+- `REAPER.yaml`: declare the third specimen in the capability manifest.
+- `README.md`: describe the third specimen, its verifier proof, and its honest boundary.
+- `AGENTS.md`: add the audit ledger paragraph to the paired agent guide.
+- `CLAUDE.md`: add the byte-identical audit ledger paragraph.
 - `WORK.md`: bind this exact task, proof, and stop boundary.
 
 ## Prove
 
-- Green: `make check` passes with nested Go race tests, lint, shell, TypeScript, Python, and boundary checks.
-- Green: `make webhook-demo` shows all three official verifier libraries accept real deliveries and reject a tampered signature.
-- Green: `make webhook-invariants` proves retry-after-failure, disabled silence, replay identity, restart durability, and token separation.
-- Red: a changed payload or signature is rejected, failed sends are audited before retry, and a forced audit insert failure cannot advance delivery state.
+- Green: `make check` passes with nested Go race tests, lint, Python unit tests, shell, and boundary checks.
+- Green: `make audit-demo` shows the Python verifier's recomputed head equals the service head for two tenants.
+- Green: `make audit-invariants` proves token separation, idempotent replay, atomic batches, tenant isolation, exact pagination, trigger-enforced append-only, and restart durability.
+- Red: one edited export value breaks verification at exactly its sequence, a removed row surfaces as a gap, a replay with different content is refused, and `UPDATE` or `DELETE` on `entries` aborts.
 
 ## Stop
 
 - Stop if the nested module requires root import coupling, a `go.work`, or factory capability changes.
-- Stop before any non-loopback demo dependency or external infrastructure.
-- The operator authorized personal PR cleanup; merge only through an operator-issued grant and Gate-pinned command.
+- Stop before any non-loopback demo dependency, signing keys, notarization, Gate invocation, or merge.
 - Stop after two review-fix rounds even if a broader architectural finding remains.
 
 ## Evidence
 
-- Verified: root `make check`, `make demo`, and `make product-demo` pass.
-- Verified: nested `make check`, `make demo`, and `make invariants` pass; all
-  three official verifier libraries accept literal fixture bytes and reject
-  same-length signature tampering.
-- Verified: race tests cover both disable/send orderings, replay attribution
-  across a principal change, owner-only database mode, atomic audit rollback,
-  and destination-credential redaction from the read authority.
-- Reviewed: five adversarial findings were reproduced and folded before PR.
-- Reviewed: first `@codex review` round found response-start retry timing and
-  graceful-shutdown audit loss; both were reproduced and fixed with focused
-  race tests before the second exact-head review.
-- Reviewed: second `@codex review` round found stale paired agent guides and a
-  whitespace-only actor accepted at service construction; both were reproduced
-  and folded in the second and final allowed fix round.
-
-- Reviewed: the Claude review's eight findings were each reproduced by a
-  focused test and folded: queue-head starvation, 2xx-with-torn-body retry,
-  fan-out abort on a racing disable, the global attempt permit, bash 3.2
-  cleanup, manifest drift, dual transition tables, and laundered signing
-  failures.
+- Verified: nested `make check`, `make demo`, and `make invariants` pass locally.
+- Verified: Go known-answer tests match hashes produced by the Python verifier without shared code.
+- Verified: the nested check passes after rebasing onto the current webhook base.
+- Pending: root and CI checks on the pushed reconciled head.
+- Reviewed: the first Codex round's exact-schema and integer-sequence findings
+  and the second round's U+FFFD-domain and unreadable-input findings were each
+  reproduced, fixed, and covered by regression tests.
 
 ## Handoff
 
-- Last: reconciled the shared guides and validation wiring with merged tunnel
-  PRs #9-#11 and factory repair #13, then merged main's IPv6 ingress-tunnel
-  packaging (#14, independent module, no overlap with the webhook specimen).
-- Next: revalidate the combined tree and record exact-head evidence. The
-  review-fix cap is exhausted; do not start another panel loop.
+- Last: merged the webhook-delivery branch's new tip (which now also carries
+  the merged ingress-tunnel specimen, PRs #9-#11/#13, and main's IPv6
+  packaging #14) into this branch; only the shared root docs/scripts and
+  `WORK.md` conflicted, all resolved by combining both sides.
+- Next: revalidate the combined tree (`make check`) and record exact-head
+  evidence. The review-fix cap is exhausted; do not start another panel loop.

@@ -18,3 +18,4 @@ examples/typescript/node_modules/
 specimens/webhook-delivery/receivers/python/.venv/
 specimens/webhook-delivery/receivers/python/__pycache__/
 specimens/webhook-delivery/receivers/typescript/node_modules/
+specimens/audit-ledger/verifier/__pycache__/
