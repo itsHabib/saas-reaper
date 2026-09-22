@@ -1,0 +1,9 @@
+{
+  "type": "invoice.paid",
+  "data": {
+    "invoiceId": "inv_20260828_001",
+    "customerId": "cus_acme",
+    "amount": 4200,
+    "currency": "usd"
+  }
+}

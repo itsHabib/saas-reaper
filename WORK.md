@@ -1,59 +1,83 @@
 <!-- reaper-work:v1 -->
-# Work: IPv6 ingress feasibility experiment
+# Work: Customer-owned webhook delivery specimen
 
-Work-ID: ingress-tunnel-ipv6-experiment
+Work-ID: webhook-delivery-specimen
 Status: active
 Subject: git:2371c58101c524f02d5f67e504a8438606a50988
 Stop-at: operator-decision
 
 ## Outcome
 
-Determine whether the GCP tunnel can omit public IPv4 without paid NAT while
-preserving IPv4-client access, transport behavior, and authority boundaries.
-Land the validated opt-in exact-host IPv6 deployment through Gate after
-reconciling main, rerunning checks, and judging the exact head.
+An in-repository, customer-owned Go webhook-delivery specimen registers and
+disables endpoints, publishes exact payload bytes, signs Standard Webhooks
+deliveries, retries failures on a bounded schedule, replays messages, and
+persists an append-only attempt audit that official Go, JavaScript, and Python
+verifiers accept through local runnable proofs.
 
 ## Preserve
 
-- Existing direct IPv4 defaults and private Terraform state; live migration and address release belong to the coordinating agent after validation.
-- Independent tunnel module, loopback-only proofs, separate credentials and scoped DNS authority.
-- Public artifacts use generic examples and contain no operator identifiers or secrets.
+- The feature-flags golden specimen and factory output stay behaviorally unchanged.
+- `internal/factory/validate.go` continues to reject every capability other than `feature-flags`.
+- Policy, HTTP transport, persistence, and worker mechanisms remain one-way layers with consumer-owned interfaces.
+- Management and audit-read credentials stay separate; the configured principal supplies the audit actor.
+- Demo and CI delivery traffic stays on loopback and no external infrastructure is provisioned.
 
 ## Change
 
-- `specimens/ingress-tunnel/experiments/ipv6/`: sourced feasibility result and opt-in public egress probe.
-- `specimens/ingress-tunnel/deploy/gcp/`: opt-in IPv6 mode, static address, retained migration reservation, origin secret, Caddy policy, mock tests and setup guide.
-- `specimens/ingress-tunnel/scripts/`: render and exercise both deployment modes on loopback.
-- `WORK.md`: current bounded outcome and evidence.
+- `specimens/webhook-delivery/`: add the independent Go module, official verifier fixtures, local demo, invariant probes, and scoped checks.
+- `scripts/setup.sh`: install the nested specimen's pinned dependencies.
+- `scripts/check.sh`: include the nested module in the root verification floor.
+- `scripts/check-boundaries.sh`: exclude installed nested dependencies while continuing to scan authored specimen source.
+- `.gitignore`: keep nested verifier installations and bytecode out of the repository proof.
+- `Makefile`: expose webhook demo, invariant, and complete specimen proof targets.
+- `.github/workflows/ci.yml`: run the local-only webhook interoperability and invariant proof.
+- `README.md`: describe the webhook specimen, selection principle, runnable proof, and factory boundary honestly.
+- `REAPER.yaml`: declare all three golden specimens in the artifact manifest.
+- `AGENTS.md`: extend the paired law with the webhook specimen's layers, proofs, and authority rules.
+- `CLAUDE.md`: keep the byte-identical projection of the extended law.
+- `WORK.md`: bind this exact task, proof, and stop boundary.
 
 ## Prove
 
-- Green: shell syntax/lint and controlled transport-response probe checks.
-- Red: missing explicit probe flag and failed transport return nonzero.
-- Green: make check and all three tunnel proofs preserve current behavior.
+- Green: `make check` passes with nested Go race tests, lint, shell, TypeScript, Python, and boundary checks.
+- Green: `make webhook-demo` shows all three official verifier libraries accept real deliveries and reject a tampered signature.
+- Green: `make webhook-invariants` proves retry-after-failure, disabled silence, replay identity, restart durability, and token separation.
+- Red: a changed payload or signature is rejected, failed sends are audited before retry, and a forced audit insert failure cannot advance delivery state.
 
 ## Stop
 
-- Implementation worker: no infrastructure apply, DNS/firewall changes, IPv4 release, Slack cutover, or merge.
-- The operator separately authorized the coordinating agent to validate and migrate the live deployment after checks; this document does not transfer that authority to the worker.
-- No paid NAT or expanded host DNS authority to force feasibility.
-- The delegated deep-hostname configuration fails free Universal SSL coverage; do not claim it works.
+- Stop if the nested module requires root import coupling, a `go.work`, or factory capability changes.
+- Stop before any non-loopback demo dependency or external infrastructure.
+- The operator authorized personal PR cleanup; merge only through an operator-issued grant and Gate-pinned command.
+- Stop after two review-fix rounds even if a broader architectural finding remains.
 
 ## Evidence
 
-- Verified: official DNS delegation and Universal SSL documentation falsify the unchanged-domain candidate.
-- Verified: make check and all three tunnel proofs pass after packaging; 16 GCP mocks and actual Caddy origin-auth/visitor/forwarding/log/no-store tests pass.
-- Verified: Bash syntax, ShellCheck, and controlled curl responses cover reachable HTTP rejection, network failure, empty HTTP response, and missing opt-in.
-- Verified: coordinating agent reports isolated no-public-IPv4 E2 boot, first-level TLS, IPv4-forced agent/WSS, exact body, signed fixture callbacks, streaming, access rejection and telemetry. See sanitized LIVE-VALIDATION.md.
-- Verified: post-reboot transport/security suite passed; certificates retained, services active, claim revoked and local fixtures stopped.
-- Verified: coordinating agent removed experimental cloud/DNS resources and OS Login key; original delegation remained and original pilot strict-TLS health returned 200.
-- Verified: packaged mode 0c73702 passed live reboot, VM replacement, secret rotation, origin/cache/forwarding rejection, static IPv6 and certificate/claim retention; no-drift exit 0.
-- Verified: separate plan removed only the old IPv4 reservation; apply passed, health returned 200, and only static external IPv6 remained.
-- Verified: post-release suite passed; probe revoked, agent/fixtures stopped, temporary IAP/OS Login access and empty former DNS zone/delegation removed. Pre-migration snapshot intentionally retained.
-- Long-duration, real-app, renewal and measured-billing acceptance remain separate.
+- Verified: root `make check`, `make demo`, and `make product-demo` pass.
+- Verified: nested `make check`, `make demo`, and `make invariants` pass; all
+  three official verifier libraries accept literal fixture bytes and reject
+  same-length signature tampering.
+- Verified: race tests cover both disable/send orderings, replay attribution
+  across a principal change, owner-only database mode, atomic audit rollback,
+  and destination-credential redaction from the read authority.
+- Reviewed: five adversarial findings were reproduced and folded before PR.
+- Reviewed: first `@codex review` round found response-start retry timing and
+  graceful-shutdown audit loss; both were reproduced and fixed with focused
+  race tests before the second exact-head review.
+- Reviewed: second `@codex review` round found stale paired agent guides and a
+  whitespace-only actor accepted at service construction; both were reproduced
+  and folded in the second and final allowed fix round.
+
+- Reviewed: the Claude review's eight findings were each reproduced by a
+  focused test and folded: queue-head starvation, 2xx-with-torn-body retry,
+  fan-out abort on a racing disable, the global attempt permit, bash 3.2
+  cleanup, manifest drift, dual transition tables, and laundered signing
+  failures.
 
 ## Handoff
 
-- Last: published opt-in packaging and the default-log redaction fix; coordinating agent validated replacement and removed the old IPv4 reservation.
-- Next: finish exact-head checks and review, then merge using the operator grant and Gate-pinned command.
-- Reconciled merged non-tunnel fixes from PR #13; its detailed evidence remains in docs/non-tunnel-review.md.
+- Last: reconciled the shared guides and validation wiring with merged tunnel
+  PRs #9-#11 and factory repair #13, then merged main's IPv6 ingress-tunnel
+  packaging (#14, independent module, no overlap with the webhook specimen).
+- Next: revalidate the combined tree and record exact-head evidence. The
+  review-fix cap is exhausted; do not start another panel loop.
