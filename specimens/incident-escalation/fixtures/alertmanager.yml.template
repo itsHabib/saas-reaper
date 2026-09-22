@@ -1,0 +1,21 @@
+# Rendered by scripts/demo.sh with the routing key the specimen minted.
+# Everything except ROUTING_KEY and INGEST_URL is exactly what an operator
+# would write to point Alertmanager at a hosted incident vendor.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: reaper-incidents
+  group_by: ['alertname']
+  group_wait: 1s
+  group_interval: 1s
+  repeat_interval: 1h
+
+receivers:
+  - name: reaper-incidents
+    pagerduty_configs:
+      - routing_key: ROUTING_KEY
+        url: INGEST_URL
+        send_resolved: true
+        severity: critical
+        client: Alertmanager

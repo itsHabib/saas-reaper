@@ -1,11 +1,13 @@
 # Agent operating guide
 
-This repository contains the SaaS Reaper factory and three customer-owned golden
+This repository contains the SaaS Reaper factory and four customer-owned golden
 specimens: the root Go feature-flag service, the independent Go outbound
-webhook-delivery module under `specimens/webhook-delivery/`, and the independent
-ingress-tunnel module under `specimens/ingress-tunnel/`. The factory still
-composes feature-flag services only. The proofs are intentionally bounded;
-preserve their compatibility rules unless the operator explicitly expands them.
+webhook-delivery module under `specimens/webhook-delivery/`, the independent
+Go incident-escalation module under `specimens/incident-escalation/`, and the
+independent ingress-tunnel module under `specimens/ingress-tunnel/`. The
+factory still composes feature-flag services only. The proofs are intentionally
+bounded; preserve their compatibility rules unless the operator explicitly
+expands them.
 
 `AGENTS.md` and `CLAUDE.md` are paired entrypoints. Keep them byte-identical.
 
@@ -20,9 +22,10 @@ Read, in order:
 5. The nearest package source and tests for the change.
 6. The relevant repo skill under `skills/`.
 
-Webhook specimen work also reads `specimens/webhook-delivery/README.md`. Keep
-that module independent: do not add a root import, `go.work`, or webhook
-capability to the factory as part of specimen maintenance.
+Webhook specimen work also reads `specimens/webhook-delivery/README.md`, and
+incident specimen work reads `specimens/incident-escalation/README.md`. Keep
+those modules independent: do not add a root import, `go.work`, or a webhook or
+incident capability to the factory as part of specimen maintenance.
 
 Tunnel specimen work also reads `specimens/ingress-tunnel/README.md` and
 `specimens/ingress-tunnel/deploy/aws/README.md` and, for GCP work,
@@ -48,6 +51,8 @@ make demo
 make product-demo
 make webhook-demo
 make webhook-invariants
+make incident-demo
+make incident-invariants
 make tunnel-demo
 make tunnel-invariants
 make tunnel-deploy-check
@@ -63,6 +68,12 @@ paths and unsafe combinations; it must never apply external infrastructure.
 Run both webhook proof commands after changes to webhook policy, signing,
 transport, persistence, worker behavior, official verifier pins, or fixtures.
 Their traffic must remain on loopback with an injectable retry clock.
+
+Run both incident proof commands after changes to incident policy, escalation
+timing, on-call resolution, ingest compatibility, notification transports,
+persistence, worker behavior, pinned container images, or fixtures. The demo
+needs a Docker daemon and keeps every container on one private network with no
+published port; the invariant probes stay on loopback with an injectable clock.
 
 Run all three tunnel proof commands after changes to tunnel policy, the link,
 the edge, the agent, persistence, proof fixtures, or either deployment pack. Their traffic
@@ -99,6 +110,16 @@ Signed deliveries use the exact stored payload bytes. Attempt audit insertion
 and delivery state advancement are one SQLite transaction, and the audit is
 append-only. Retry schedules are bounded; replay keeps the original message ID
 and creates a fresh delivery identity.
+
+The incident specimen keeps lifecycle, dedup, escalation, and notification
+planning in `internal/incident`, rotation and override resolution in
+`internal/oncall`, HTTP translation in `internal/api`, outbound paging in
+`internal/transport/*`, persistence in `internal/store/sqlite`, and polling in
+`internal/worker`. One transition function owns the incident state table for
+ingest, management, and the timer alike. The escalation timer is a durable
+column, never an in-memory timer, so a restart reconstructs it from SQLite. A
+notification is leased before any I/O, and its attempt audit and state
+advancement are one SQLite transaction against an append-only table.
 
 The tunnel specimen keeps policy in `internal/tunnel`, the WebSocket-plus-yamux
 control link in `internal/link`, the public reverse-proxy edge in
@@ -172,6 +193,14 @@ audit-read token. Neither token selects the audit actor, endpoint secrets are
 never returned by the read surface, and disabling an endpoint prevents future
 or already-queued sends.
 
+The incident specimen separates its management token from its incident-read
+token, and its ingest endpoint is authenticated by the service routing key
+rather than either token. The audit actor is the configured principal for
+management actions, `service:<id>` for wire-driven transitions, and
+`system:escalation-timer` for the timer; request JSON never selects it.
+Responder signing secrets and service routing keys are returned once at
+registration and never by the read surface.
+
 The tunnel specimen separates a management token, a read token, and per-claim
 agent tokens. The agent token is shown once at claim time and only its hash is
 stored; the read plane never returns credential material. A second agent with
@@ -191,6 +220,9 @@ Agents may implement an operator-requested change and run validation. They may n
 - Storage: change one `internal/store/<mechanism>`; run the store contract, restart, conflict, and atomic-audit tests.
 - Webhook delivery: change only `specimens/webhook-delivery/`; run `make check`,
   `make webhook-demo`, and `make webhook-invariants` from the repository root.
+- Incident escalation: change only `specimens/incident-escalation/`; run
+  `make check`, `make incident-demo`, and `make incident-invariants` from the
+  repository root.
 - Ingress tunnel: change only `specimens/ingress-tunnel/`; run `make check`,
   `make tunnel-demo`, `make tunnel-invariants`, and `make tunnel-deploy-check`
   from the repository root.
@@ -203,6 +235,7 @@ A change is complete only when:
 - `make check` passes, including race and boundary checks.
 - `make demo` passes when a runnable surface changed.
 - Both webhook proofs pass when the webhook specimen changed.
+- Both incident proofs pass when the incident specimen changed.
 - All three tunnel proofs pass when the tunnel specimen changed.
 - `WORK.md`, `AGENTS.md`, `CLAUDE.md`, `DOMAIN.md`, `REAPER.yaml`, and `README.md` remain consistent with the code.
 - The diff contains no unrelated cleanup or speculative capability.
