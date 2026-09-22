@@ -140,7 +140,11 @@ func (s Schedule) resolve(
 	if sendErr == nil && result.StatusCode >= 200 && result.StatusCode <= 299 {
 		return attempt.concluded(OutcomeDelivered)
 	}
-	if sendErr == nil && result.StatusCode == http.StatusGone {
+	if result.StatusCode == http.StatusGone {
+		// A torn response body after an authoritative 410 cannot undo the
+		// disable signal: StatusCode is only ever set from a real response
+		// (see httpdelivery.Sender.Send), so this can't false-positive on a
+		// pure transport failure where StatusCode stays its zero value.
 		return attempt.concluded(OutcomeEndpointDisabled)
 	}
 	if number > len(s.delays) {

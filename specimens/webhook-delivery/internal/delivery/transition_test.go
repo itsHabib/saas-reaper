@@ -94,3 +94,24 @@ func TestScheduleTerminatesPermanentFailureWithoutRetry(t *testing.T) {
 		t.Fatalf("transient failure = %#v, want retrying", transient)
 	}
 }
+
+// TestGoneDisablesEvenWithATornResponseBody covers the case where the
+// receiver returns 410 but the transport also reports an error draining or
+// closing that response's body (httpdelivery.Sender.Send preserves
+// StatusCode 410 in that case). The disable signal must not be downgraded
+// to a retryable failure just because the body read afterward failed.
+func TestGoneDisablesEvenWithATornResponseBody(t *testing.T) {
+	schedule, err := NewSchedule(DefaultRetryDelays)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(100, 0)
+	dispatch := Dispatch{DeliveryID: "del_1", MessageID: "msg_1", EndpointID: "ep_1"}
+	attempt := schedule.resolve(dispatch, SendResult{StatusCode: 410}, errors.New("close webhook response: torn body"), now, now)
+	if attempt.Outcome != OutcomeEndpointDisabled || attempt.State != StateDisabled || !attempt.DisableEndpoint {
+		t.Fatalf("410 with a body error = %#v, want endpoint disabled", attempt)
+	}
+	if !attempt.NextAttemptAt.IsZero() {
+		t.Fatalf("410 with a body error = %#v, want no retry scheduled", attempt)
+	}
+}
