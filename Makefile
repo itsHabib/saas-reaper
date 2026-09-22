@@ -1,4 +1,6 @@
-.PHONY: setup work demo product-demo webhook-demo webhook-invariants webhook-proof check verify tunnel-demo tunnel-invariants tunnel-deploy-check tunnel-proof
+.PHONY: setup work demo product-demo webhook-demo webhook-invariants webhook-proof \
+	notification-demo notification-invariants notification-proof check verify \
+	tunnel-demo tunnel-invariants tunnel-deploy-check tunnel-proof
 
 setup:
 	./scripts/setup.sh
@@ -20,6 +22,14 @@ webhook-invariants: setup
 
 webhook-proof: check webhook-demo webhook-invariants
 
+notification-demo:
+	$(MAKE) -C specimens/notification-routing demo
+
+notification-invariants:
+	$(MAKE) -C specimens/notification-routing invariants
+
+notification-proof: check notification-demo notification-invariants
+
 tunnel-demo: setup
 	$(MAKE) -C specimens/ingress-tunnel demo
 
@@ -34,4 +44,4 @@ tunnel-proof: check tunnel-demo tunnel-invariants tunnel-deploy-check
 check: setup
 	./scripts/check.sh
 
-verify: product-demo webhook-proof tunnel-proof
+verify: product-demo webhook-proof notification-proof tunnel-proof
