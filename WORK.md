@@ -3,7 +3,7 @@
 
 Work-ID: notification-routing-specimen
 Status: active
-Subject: git:9334a0bbc99df69dc19abd834249ee89c23cb57e
+Subject: git:2b423b88dde611f52ad61f59e6630fa530008feb
 Stop-at: reviewed-change
 
 ## Outcome
@@ -61,5 +61,11 @@ and a Slack-shape incoming-webhook receiver.
 
 ## Handoff
 
-- Last: the second and final allowed fix round removed remote-controlled text from the transport receipt and realigned this record with the widened state walk.
-- Next: confirm the reviewed head is CI-green and stop there without Gate or merge.
+- Last: the second and final allowed fix round removed remote-controlled text
+  from the transport receipt and realigned this record with the widened state
+  walk; then merged the webhook-delivery branch's new tip (which now also
+  carries the merged ingress-tunnel specimen and main's IPv6 packaging #14)
+  into this branch — only the shared root docs/scripts and `WORK.md`
+  conflicted, all resolved by combining both sides.
+- Next: confirm the reconciled head is CI-green and stop there without Gate
+  or merge. The review-fix cap is exhausted; do not start another panel loop.

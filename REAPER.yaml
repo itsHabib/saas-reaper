@@ -8,6 +8,8 @@ specimens:
     path: specimens/webhook-delivery
   - name: notification-routing
     path: specimens/notification-routing
+  - name: ingress-tunnel
+    path: specimens/ingress-tunnel
 
 factory:
   languages:

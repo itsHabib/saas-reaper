@@ -65,3 +65,27 @@ test("unknown domain attributes and unsafe keys are rejected", () => {
   assert.throws(() => validateFlag(definition, "checkout-v2"), /not approved/);
   assert.throws(() => validateFlag({ ...definition, rules: [] }, "../checkout"), /unsupported character/);
 });
+
+test("inherited object properties are not declared variants", () => {
+  const definition = {
+    kind: "boolean", enabled: true, defaultVariant: "off", variants: { off: false },
+  };
+  for (const variant of ["constructor", "toString", "__proto__"]) {
+    assert.throws(() => validateFlag({ ...definition, defaultVariant: variant }, "checkout"), /not defined/);
+    assert.throws(() => validateFlag({ ...definition, rules: [
+      { attribute: "targetingKey", equals: "user", variant },
+    ] }, "checkout"), /not defined/);
+    assert.throws(() => validateFlag({ ...definition, rollout:
+      { attribute: "targetingKey", percentage: 100, variant },
+    }, "checkout"), /not defined/);
+  }
+});
+
+test("explicitly declared prototype-named variants survive publication and evaluation", () => {
+  const variants: unknown = JSON.parse('{"__proto__":true,"constructor":false}');
+  const flag = validateFlag({
+    kind: "boolean", enabled: true, defaultVariant: "__proto__", variants,
+  }, "checkout");
+  assert.equal(evaluate(flag, { targetingKey: "user" }).value, true);
+  assert.equal(JSON.stringify(flag.variants), '{"__proto__":true,"constructor":false}');
+});

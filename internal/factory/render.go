@@ -3,6 +3,7 @@ package factory
 import (
 	"crypto/sha256"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -13,7 +14,7 @@ import (
 )
 
 // FactoryVersion identifies the template set recorded in generated lock receipts.
-const FactoryVersion = "0.8.0"
+const FactoryVersion = "0.8.1"
 
 //go:embed templates
 var templateFiles embed.FS
@@ -29,6 +30,7 @@ type renderData struct {
 	FactoryVersion    string
 	RecipeDigest      string
 	Attributes        string
+	AttributeLiterals []string
 	ModuleName        string
 	PolicyPath        string
 	ProofPath         string
@@ -121,7 +123,11 @@ func newRenderData(recipe Recipe) (renderData, error) {
 	}
 	quoted := make([]string, 0, len(recipe.Domain.TargetingAttributes))
 	for _, attribute := range recipe.Domain.TargetingAttributes {
-		quoted = append(quoted, fmt.Sprintf("%q", attribute))
+		encoded, err := json.Marshal(attribute)
+		if err != nil {
+			return renderData{}, fmt.Errorf("encode targeting attribute: %w", err)
+		}
+		quoted = append(quoted, string(encoded))
 	}
 	language, _ := findLanguage(recipe.Service.Language)
 	database, _ := findDatabase(recipe.Database.Authority)
@@ -132,6 +138,7 @@ func newRenderData(recipe Recipe) (renderData, error) {
 		FactoryVersion:    FactoryVersion,
 		RecipeDigest:      fmt.Sprintf("sha256:%x", sha256.Sum256(recipeData)),
 		Attributes:        strings.Join(quoted, ", "),
+		AttributeLiterals: quoted,
 		ModuleName:        strings.ReplaceAll(recipe.Name, "-", "_"),
 		PolicyPath:        policyPaths[recipe.Service.Language],
 		ProofPath:         proofPaths[recipe.Service.Language],

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-var projectName = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
+var projectName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,61}[a-z0-9]$`)
 
 // Validate rejects unsupported or operationally unsafe combinations.
 func Validate(recipe Recipe) error {
@@ -56,6 +56,9 @@ func validateSelections(recipe Recipe) error {
 }
 
 func validateDeployment(recipe Recipe) error {
+	if err := validateDeploymentName(recipe); err != nil {
+		return err
+	}
 	if recipe.Deployment.Replicas < 1 {
 		return errors.New("deployment replicas must be at least one")
 	}
@@ -106,6 +109,21 @@ func validateAttributes(attributes []string) error {
 	}
 	if _, ok := seen["targetingKey"]; !ok {
 		return errors.New("targeting attributes must include targetingKey")
+	}
+	return nil
+}
+
+// The recipe name is used verbatim for provider resources in these packs.
+func validateDeploymentName(recipe Recipe) error {
+	if recipe.Deployment.Target == "aws-ecs" {
+		if len(recipe.Name) > 32 || strings.HasPrefix(recipe.Name, "internal-") {
+			return errors.New("aws-ecs name must be at most 32 characters and cannot start with internal-")
+		}
+	}
+	if recipe.Deployment.Target == "gcp-cloud-run" {
+		if len(recipe.Name) < 6 || len(recipe.Name) > 30 {
+			return errors.New("gcp-cloud-run name must be between 6 and 30 characters for its service account")
+		}
 	}
 	return nil
 }
