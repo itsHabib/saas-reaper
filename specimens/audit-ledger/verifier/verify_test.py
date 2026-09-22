@@ -157,6 +157,34 @@ class VerifyTest(unittest.TestCase):
         with self.assertRaises(verify.ContractError):
             verify.verify(lines(rows))
 
+    def test_metadata_at_the_depth_limit_still_links_and_verifies(self):
+        # link() used to canonicalize metadata twice: once standalone for
+        # the size check (depth starts at 0), then again as part of
+        # canonical(entry) for hashing, where it starts at depth 1. Metadata
+        # nested at exactly the 32-level limit passed the first check and
+        # failed the second, even though the Go service (CanonicalEntry
+        # splices the already-canonical metadata bytes in directly, never
+        # re-deriving them at a deeper offset) accepts it.
+        at_limit = 1
+        for _ in range(verify.MAX_METADATA_DEPTH):
+            at_limit = [at_limit]
+        entry = {
+            "action": "doc.viewed",
+            "actor": "user:ada",
+            "id": "evt-1",
+            "metadata": at_limit,
+            "occurredAt": "2026-08-30T11:00:00Z",
+            "recordedAt": "2026-08-30T12:00:00Z",
+            "sequence": 1,
+            "source": "test",
+            "target": "doc:1",
+            "tenant": "acme",
+        }
+        expected = verify.link(verify.GENESIS, entry)
+        healthy, report = verify.verify(lines([dict(entry, hash=expected)]))
+        self.assertTrue(healthy)
+        self.assertEqual(report, "ok sequence=1 head=%s" % expected)
+
 
 class SharedVectorTest(unittest.TestCase):
     """The same fixture drives internal/ledger/vectors_test.go.

@@ -130,15 +130,32 @@ def check_member_types(row, number):
         raise ContractError("line %d: sequence must be an integer" % number)
 
 
+def _entry_member_text(key, value, metadata_canonical):
+    # metadata is the one member already canonicalized (see link()); every
+    # other member canonicalizes from its raw value as usual.
+    if key == "metadata":
+        return canonical_string(key) + ":" + metadata_canonical
+    return canonical_string(key) + ":" + canonical(value)
+
+
 def link(previous_hash, row):
     entry = {member: row[member] for member in ENTRY_MEMBERS}
     try:
-        metadata_bytes = len(canonical(entry["metadata"]).encode("utf-8"))
-        if metadata_bytes > MAX_METADATA_BYTES:
+        # Canonicalize metadata on its own (depth starts at 0, matching
+        # ledger.CanonicalValue) and splice that string into the entry
+        # object directly, the way Go's writeMember special-cases an
+        # already-canonical json.RawMessage. Re-walking metadata as part of
+        # canonical(entry) would start it at depth 1 instead of 0, rejecting
+        # metadata nested at exactly the 32-level limit that the Go service
+        # accepts.
+        metadata_canonical = canonical(entry["metadata"])
+        if len(metadata_canonical.encode("utf-8")) > MAX_METADATA_BYTES:
             raise ContractError(
                 "sequence %s: canonical metadata exceeds %d bytes" % (row["sequence"], MAX_METADATA_BYTES)
             )
-        material = canonical(entry).encode("utf-8") + previous_hash.encode("ascii")
+        members = (_entry_member_text(key, entry[key], metadata_canonical) for key in sorted(entry))
+        entry_canonical = "{" + ",".join(members) + "}"
+        material = entry_canonical.encode("utf-8") + previous_hash.encode("ascii")
     except UnicodeEncodeError as error:
         raise ContractError("sequence %s: %s" % (row["sequence"], error)) from error
     return hashlib.sha256(material).hexdigest()
