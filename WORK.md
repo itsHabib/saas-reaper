@@ -3,8 +3,8 @@
 
 Work-ID: webhook-delivery-specimen
 Status: active
-Subject: git:6517797efde09c323f53c165899caf3bd15c5fbc
-Stop-at: reviewed-change
+Subject: git:2371c58101c524f02d5f67e504a8438606a50988
+Stop-at: operator-decision
 
 ## Outcome
 
@@ -77,6 +77,7 @@ verifiers accept through local runnable proofs.
 ## Handoff
 
 - Last: reconciled the shared guides and validation wiring with merged tunnel
-  PRs #9-#11 and factory repair #13; both independent modules remain intact.
+  PRs #9-#11 and factory repair #13, then merged main's IPv6 ingress-tunnel
+  packaging (#14, independent module, no overlap with the webhook specimen).
 - Next: revalidate the combined tree and record exact-head evidence. The
   review-fix cap is exhausted; do not start another panel loop.
